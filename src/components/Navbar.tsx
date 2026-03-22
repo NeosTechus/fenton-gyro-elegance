@@ -1,18 +1,19 @@
 import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { Phone, Menu, X } from "lucide-react";
+import { Phone, Menu, X, ShoppingBag } from "lucide-react";
+import { useCart } from "@/context/CartContext";
 
 const navItems = [
   { label: "Menu", path: "/menu" },
   { label: "About", path: "/about" },
   { label: "Reviews", path: "/reviews" },
   { label: "Visit", path: "/contact" },
-  { label: "Order", path: "/order" },
 ];
 
 const Navbar = () => {
   const [open, setOpen] = useState(false);
   const location = useLocation();
+  const { totalItems } = useCart();
 
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 bg-background/90 backdrop-blur-sm border-b border-border">
@@ -37,21 +38,48 @@ const Navbar = () => {
           ))}
         </ul>
 
-        <a
-          href="tel:6366001333"
-          className="hidden md:flex items-center gap-2 text-sm font-medium text-primary hover:text-accent transition-colors"
-        >
-          <Phone className="w-4 h-4" />
-          (636) 600-1333
-        </a>
+        <div className="hidden md:flex items-center gap-4">
+          <a
+            href="tel:6366001333"
+            className="flex items-center gap-2 text-sm font-medium text-primary hover:text-accent transition-colors"
+          >
+            <Phone className="w-4 h-4" />
+            (636) 600-1333
+          </a>
+          <Link
+            to="/menu"
+            className="relative flex items-center gap-2 px-5 py-2 bg-accent text-accent-foreground text-sm font-sans font-semibold uppercase tracking-wider rounded-sm hover:opacity-90 active:scale-[0.97] transition-all"
+          >
+            <ShoppingBag className="w-4 h-4" />
+            Order
+            {totalItems > 0 && (
+              <span className="absolute -top-2 -right-2 w-5 h-5 bg-primary text-primary-foreground text-[10px] font-bold rounded-full flex items-center justify-center">
+                {totalItems}
+              </span>
+            )}
+          </Link>
+        </div>
 
-        <button
-          onClick={() => setOpen(!open)}
-          className="md:hidden text-foreground active:scale-95 transition-transform"
-          aria-label="Toggle menu"
-        >
-          {open ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
-        </button>
+        <div className="md:hidden flex items-center gap-3">
+          <Link
+            to="/menu"
+            className="relative p-2"
+          >
+            <ShoppingBag className="w-5 h-5 text-foreground" />
+            {totalItems > 0 && (
+              <span className="absolute -top-1 -right-1 w-4 h-4 bg-accent text-accent-foreground text-[9px] font-bold rounded-full flex items-center justify-center">
+                {totalItems}
+              </span>
+            )}
+          </Link>
+          <button
+            onClick={() => setOpen(!open)}
+            className="text-foreground active:scale-95 transition-transform"
+            aria-label="Toggle menu"
+          >
+            {open ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+          </button>
+        </div>
       </div>
 
       {/* Mobile menu */}

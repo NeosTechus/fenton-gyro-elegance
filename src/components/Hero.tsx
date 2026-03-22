@@ -62,13 +62,13 @@ const Hero = () => {
             to="/menu"
             className="inline-flex items-center px-7 py-3 bg-accent text-accent-foreground font-sans font-semibold text-sm uppercase tracking-wider rounded-sm hover:opacity-90 active:scale-[0.97] transition-all duration-200"
           >
-            View Menu
+            Order Now
           </Link>
           <Link
-            to="/order"
+            to="/menu"
             className="inline-flex items-center px-7 py-3 border border-secondary/40 text-secondary font-sans font-semibold text-sm uppercase tracking-wider rounded-sm hover:bg-secondary/10 active:scale-[0.97] transition-all duration-200"
           >
-            Order Online
+            View Menu
           </Link>
         </div>
       </div>
