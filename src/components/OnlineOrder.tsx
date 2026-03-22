@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useEffect, useRef } from "react";
-import { Check, Minus, Plus, ShoppingBag } from "lucide-react";
+import { Check, Minus, Plus, ShoppingBag, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { createCheckoutSession } from "@/lib/stripe";
 
 interface MenuItem {
   id: string;
