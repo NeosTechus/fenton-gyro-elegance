@@ -1,26 +1,38 @@
 import { useState } from "react";
+import { Link, useLocation } from "react-router-dom";
 import { Phone, Menu, X } from "lucide-react";
+
+const navItems = [
+  { label: "Menu", path: "/menu" },
+  { label: "About", path: "/about" },
+  { label: "Reviews", path: "/reviews" },
+  { label: "Visit", path: "/contact" },
+  { label: "Order", path: "/order" },
+];
 
 const Navbar = () => {
   const [open, setOpen] = useState(false);
+  const location = useLocation();
 
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 bg-background/90 backdrop-blur-sm border-b border-border">
       <div className="max-w-6xl mx-auto flex items-center justify-between px-6 py-4">
-        <a href="#" className="font-serif text-2xl font-semibold tracking-tight text-foreground">
+        <Link to="/" className="font-serif text-2xl font-semibold tracking-tight text-foreground">
           Fenton Gyro
-        </a>
+        </Link>
 
         {/* Desktop */}
         <ul className="hidden md:flex items-center gap-8 text-sm font-medium tracking-wide uppercase text-muted-foreground">
-          {["Menu", "About", "Reviews", "Visit"].map((item) => (
-            <li key={item}>
-              <a
-                href={`#${item.toLowerCase()}`}
-                className="hover:text-foreground transition-colors duration-200"
+          {navItems.map((item) => (
+            <li key={item.label}>
+              <Link
+                to={item.path}
+                className={`hover:text-foreground transition-colors duration-200 ${
+                  location.pathname === item.path ? "text-accent" : ""
+                }`}
               >
-                {item}
-              </a>
+                {item.label}
+              </Link>
             </li>
           ))}
         </ul>
@@ -46,15 +58,17 @@ const Navbar = () => {
       {open && (
         <div className="md:hidden bg-background border-t border-border animate-fade-in">
           <ul className="flex flex-col items-center gap-4 py-6 text-sm font-medium uppercase tracking-wide text-muted-foreground">
-            {["Menu", "About", "Reviews", "Visit"].map((item) => (
-              <li key={item}>
-                <a
-                  href={`#${item.toLowerCase()}`}
+            {navItems.map((item) => (
+              <li key={item.label}>
+                <Link
+                  to={item.path}
                   onClick={() => setOpen(false)}
-                  className="hover:text-foreground transition-colors"
+                  className={`hover:text-foreground transition-colors ${
+                    location.pathname === item.path ? "text-accent" : ""
+                  }`}
                 >
-                  {item}
-                </a>
+                  {item.label}
+                </Link>
               </li>
             ))}
             <li>
