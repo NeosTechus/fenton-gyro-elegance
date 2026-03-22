@@ -36,6 +36,7 @@ const OnlineOrder = () => {
   const [orderType, setOrderType] = useState<OrderType>("pickup");
   const [formData, setFormData] = useState({ name: "", phone: "", email: "", address: "", notes: "" });
   const [submitted, setSubmitted] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
 
   useEffect(() => {
     const el = ref.current;
