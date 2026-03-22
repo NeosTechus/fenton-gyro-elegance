@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { Link } from "react-router-dom";
 
 const items = [
   { name: "Classic Gyro", desc: "Seasoned lamb & beef, fresh veggies, tzatziki, warm pita", price: "$9.99", tag: "Signature" },
@@ -68,7 +69,13 @@ const MenuHighlights = () => {
         </div>
 
         <div className="text-center mt-12">
-          <p className="text-sm text-muted-foreground">
+          <Link
+            to="/menu"
+            className="inline-flex items-center px-8 py-3.5 bg-accent text-accent-foreground font-sans font-semibold text-sm uppercase tracking-wider rounded-sm hover:opacity-90 active:scale-[0.97] transition-all duration-200"
+          >
+            View Full Menu & Order
+          </Link>
+          <p className="text-sm text-muted-foreground mt-4">
             Dine-in · Curbside Pickup · Delivery
           </p>
         </div>
