@@ -64,10 +64,10 @@ const Hero = () => {
             View Menu
           </a>
           <a
-            href="tel:6366001333"
+            href="#order"
             className="inline-flex items-center px-7 py-3 border border-secondary/40 text-secondary font-sans font-semibold text-sm uppercase tracking-wider rounded-sm hover:bg-secondary/10 active:scale-[0.97] transition-all duration-200"
           >
-            Order Now
+            Order Online
           </a>
         </div>
       </div>
