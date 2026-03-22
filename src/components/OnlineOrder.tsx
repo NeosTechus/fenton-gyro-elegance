@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useEffect, useRef } from "react";
-import { Check, Minus, Plus, ShoppingBag } from "lucide-react";
+import { Check, Minus, Plus, ShoppingBag, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { createCheckoutSession } from "@/lib/stripe";
 
 interface MenuItem {
   id: string;
@@ -35,6 +36,7 @@ const OnlineOrder = () => {
   const [orderType, setOrderType] = useState<OrderType>("pickup");
   const [formData, setFormData] = useState({ name: "", phone: "", email: "", address: "", notes: "" });
   const [submitted, setSubmitted] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
 
   useEffect(() => {
     const el = ref.current;
@@ -64,7 +66,7 @@ const OnlineOrder = () => {
     return sum + (item ? item.price * qty : 0);
   }, 0);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (totalItems === 0) {
       toast.error("Please add items to your order");
@@ -78,8 +80,21 @@ const OnlineOrder = () => {
       toast.error("Please enter a delivery address");
       return;
     }
-    setSubmitted(true);
-    toast.success("Order placed! We'll confirm shortly.");
+
+    setIsProcessing(true);
+    try {
+      const items = Object.entries(cart).map(([id, qty]) => {
+        const item = menuItems.find((m) => m.id === id)!;
+        return { name: item.name, price: item.price, quantity: qty };
+      });
+
+      const checkoutUrl = await createCheckoutSession(items, orderType, formData);
+      window.location.href = checkoutUrl;
+    } catch (error) {
+      console.error("Checkout error:", error);
+      toast.error(error instanceof Error ? error.message : "Payment failed. Please try again.");
+      setIsProcessing(false);
+    }
   };
 
   if (submitted) {
@@ -282,10 +297,17 @@ const OnlineOrder = () => {
                 />
                 <button
                   type="submit"
-                  className="w-full py-3 bg-accent text-accent-foreground font-sans font-semibold text-sm uppercase tracking-wider rounded-sm hover:opacity-90 active:scale-[0.97] transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                  disabled={totalItems === 0}
+                  className="w-full py-3 bg-accent text-accent-foreground font-sans font-semibold text-sm uppercase tracking-wider rounded-sm hover:opacity-90 active:scale-[0.97] transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  disabled={totalItems === 0 || isProcessing}
                 >
-                  Place {orderType === "pickup" ? "Pickup" : "Delivery"} Order — ${totalPrice.toFixed(2)}
+                  {isProcessing ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Processing…
+                    </>
+                  ) : (
+                    <>Pay & Place {orderType === "pickup" ? "Pickup" : "Delivery"} Order — ${totalPrice.toFixed(2)}</>
+                  )}
                 </button>
               </form>
             </div>
