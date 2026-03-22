@@ -66,7 +66,7 @@ const OnlineOrder = () => {
     return sum + (item ? item.price * qty : 0);
   }, 0);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (totalItems === 0) {
       toast.error("Please add items to your order");
@@ -80,8 +80,21 @@ const OnlineOrder = () => {
       toast.error("Please enter a delivery address");
       return;
     }
-    setSubmitted(true);
-    toast.success("Order placed! We'll confirm shortly.");
+
+    setIsProcessing(true);
+    try {
+      const items = Object.entries(cart).map(([id, qty]) => {
+        const item = menuItems.find((m) => m.id === id)!;
+        return { name: item.name, price: item.price, quantity: qty };
+      });
+
+      const checkoutUrl = await createCheckoutSession(items, orderType, formData);
+      window.location.href = checkoutUrl;
+    } catch (error) {
+      console.error("Checkout error:", error);
+      toast.error(error instanceof Error ? error.message : "Payment failed. Please try again.");
+      setIsProcessing(false);
+    }
   };
 
   if (submitted) {
