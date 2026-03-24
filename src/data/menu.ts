@@ -24,6 +24,20 @@ import foodLoadedFries from "@/assets/food-loaded-fries.jpg";
 import foodAyran from "@/assets/food-ayran.jpg";
 import foodSoda from "@/assets/food-soda.jpg";
 
+export interface ModifierOption {
+  id: string;
+  name: string;
+  price: number;
+}
+
+export interface ModifierGroup {
+  id: string;
+  label: string;
+  required: boolean;
+  maxSelect: number; // 1 = radio-style, >1 = multi-select
+  options: ModifierOption[];
+}
+
 export interface MenuItem {
   id: string;
   name: string;
@@ -32,7 +46,61 @@ export interface MenuItem {
   category: string;
   image: string;
   tag?: string;
+  modifiers?: ModifierGroup[];
 }
+
+// ---- Shared modifier groups (owner can reuse across items) ----
+
+const proteinAdd: ModifierGroup = {
+  id: "protein-add",
+  label: "Add Protein",
+  required: false,
+  maxSelect: 3,
+  options: [
+    { id: "extra-gyro", name: "Extra Gyro Meat", price: 2.99 },
+    { id: "extra-chicken", name: "Extra Chicken", price: 2.99 },
+    { id: "extra-lamb", name: "Extra Lamb", price: 3.49 },
+    { id: "extra-falafel", name: "Extra Falafel (3 pcs)", price: 1.99 },
+  ],
+};
+
+const toppings: ModifierGroup = {
+  id: "toppings",
+  label: "Toppings",
+  required: false,
+  maxSelect: 6,
+  options: [
+    { id: "extra-feta", name: "Extra Feta Cheese", price: 1.00 },
+    { id: "extra-hummus", name: "Extra Hummus", price: 1.00 },
+    { id: "jalapenos", name: "Jalapeños", price: 0.50 },
+    { id: "extra-tzatziki", name: "Extra Tzatziki", price: 0.75 },
+    { id: "extra-tahini", name: "Extra Tahini", price: 0.75 },
+    { id: "hot-sauce", name: "Hot Sauce", price: 0.00 },
+  ],
+};
+
+const sideUpgrade: ModifierGroup = {
+  id: "side-upgrade",
+  label: "Upgrade Side",
+  required: false,
+  maxSelect: 1,
+  options: [
+    { id: "side-loaded-fries", name: "Loaded Fries", price: 3.00 },
+    { id: "side-hummus", name: "Hummus & Pita", price: 2.00 },
+    { id: "side-soup", name: "Lentil Soup", price: 1.50 },
+  ],
+};
+
+const drinkSize: ModifierGroup = {
+  id: "drink-size",
+  label: "Size",
+  required: true,
+  maxSelect: 1,
+  options: [
+    { id: "size-regular", name: "Regular", price: 0.00 },
+    { id: "size-large", name: "Large", price: 1.00 },
+  ],
+};
 
 export const menuItems: MenuItem[] = [
   // Gyros & Wraps
