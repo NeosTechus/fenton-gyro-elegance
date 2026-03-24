@@ -32,6 +32,7 @@ interface CartItem {
 }
 
 const POSPage = () => {
+  const { addOrder } = useOrders();
   const navigate = useNavigate();
   const [orderType, setOrderType] = useState<OrderType>("dine-in");
   const [selectedCategory, setSelectedCategory] = useState<string>(categories[0]);
