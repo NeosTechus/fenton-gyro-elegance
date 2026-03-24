@@ -7,6 +7,7 @@ import {
 } from "react";
 import { User, Session } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
+import { AppRole, getRoleForEmail } from "@/lib/roles";
 
 interface Profile {
   id: string;
