@@ -187,6 +187,7 @@ const KitchenDisplay = () => {
   };
 
   const countByStatus = (s: OrderStatus) => orders.filter((o) => o.status === s).length;
+  const pending = orders.filter((o) => o.status === "pending");
   const received = orders.filter((o) => o.status === "received");
   const preparing = orders.filter((o) => o.status === "preparing");
   const ready = orders.filter((o) => o.status === "ready");
