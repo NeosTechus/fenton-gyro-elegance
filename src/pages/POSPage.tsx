@@ -78,6 +78,7 @@ const POSPage = () => {
   const handleCheckout = async () => {
     if (cart.length === 0) return;
     setIsProcessing(true);
+    sendToKitchen();
     try {
       const items = cart.flatMap((c) => {
         const lineItems = [{ name: c.item.name, price: c.item.price, quantity: c.qty }];
