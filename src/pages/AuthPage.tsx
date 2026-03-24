@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
+import { getRoleForEmail } from "@/lib/roles";
 import { toast } from "sonner";
 import { ArrowLeft, Mail, Lock, User, Eye, EyeOff, LogIn, UserPlus } from "lucide-react";
 import Navbar from "@/components/Navbar";
