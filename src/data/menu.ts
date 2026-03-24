@@ -104,11 +104,11 @@ const drinkSize: ModifierGroup = {
 
 export const menuItems: MenuItem[] = [
   // Gyros & Wraps
-  { id: "classic-gyro", name: "Classic Gyro", desc: "Seasoned lamb & beef, fresh veggies, tzatziki, warm pita", price: 9.99, category: "Gyros & Wraps", image: foodGyro, tag: "Signature" },
-  { id: "chicken-gyro", name: "Chicken Gyro", desc: "Grilled chicken, crisp lettuce, tomatoes, house sauce", price: 9.99, category: "Gyros & Wraps", image: foodChickenGyro },
-  { id: "falafel-wrap", name: "Falafel Wrap", desc: "Crispy falafel, pickled turnips, tahini, fresh herbs", price: 8.99, category: "Gyros & Wraps", image: foodFalafel },
-  { id: "lamb-shawarma", name: "Lamb Shawarma Wrap", desc: "Slow-roasted lamb, garlic sauce, pickles, fresh herbs in warm pita", price: 11.99, category: "Gyros & Wraps", image: foodLambShawarma, tag: "Popular" },
-  { id: "chicken-shawarma-wrap", name: "Chicken Shawarma Wrap", desc: "Marinated grilled chicken, garlic sauce, pickles, lettuce in pita", price: 10.99, category: "Gyros & Wraps", image: foodChickenShawarmaWrap },
+  { id: "classic-gyro", name: "Classic Gyro", desc: "Seasoned lamb & beef, fresh veggies, tzatziki, warm pita", price: 9.99, category: "Gyros & Wraps", image: foodGyro, tag: "Signature", modifiers: [toppings, proteinAdd] },
+  { id: "chicken-gyro", name: "Chicken Gyro", desc: "Grilled chicken, crisp lettuce, tomatoes, house sauce", price: 9.99, category: "Gyros & Wraps", image: foodChickenGyro, modifiers: [toppings, proteinAdd] },
+  { id: "falafel-wrap", name: "Falafel Wrap", desc: "Crispy falafel, pickled turnips, tahini, fresh herbs", price: 8.99, category: "Gyros & Wraps", image: foodFalafel, modifiers: [toppings] },
+  { id: "lamb-shawarma", name: "Lamb Shawarma Wrap", desc: "Slow-roasted lamb, garlic sauce, pickles, fresh herbs in warm pita", price: 11.99, category: "Gyros & Wraps", image: foodLambShawarma, tag: "Popular", modifiers: [toppings, proteinAdd] },
+  { id: "chicken-shawarma-wrap", name: "Chicken Shawarma Wrap", desc: "Marinated grilled chicken, garlic sauce, pickles, lettuce in pita", price: 10.99, category: "Gyros & Wraps", image: foodChickenShawarmaWrap, modifiers: [toppings, proteinAdd] },
 
   // Plates
   { id: "kofta-plate", name: "Beef Kofta Plate", desc: "Seasoned beef kofta kebabs over rice with grilled vegetables and tahini", price: 14.99, category: "Plates", image: foodKofta, tag: "Chef's Pick" },
