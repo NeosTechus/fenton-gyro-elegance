@@ -7,7 +7,7 @@ const Hero = () => {
   const ref = useScrollReveal("animate-fade-up", 0.1);
 
   return (
-    <section className="relative min-h-[90vh] flex items-end overflow-hidden">
+    <section className="relative min-h-[calc(100vh-4rem)] flex items-end overflow-hidden">
       <img
         src={heroImage}
         alt="Mediterranean feast at Fenton Gyro"
