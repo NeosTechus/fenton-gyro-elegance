@@ -147,7 +147,7 @@ const POSPage = () => {
   if (step === "categories") {
     return (
       <div className="h-screen bg-background flex flex-col overflow-hidden">
-        <TopBar backLabel="Home" onBack={() => window.history.back()} />
+        <TopBar backLabel="Home" onBack={() => navigate("/")} />
 
         {/* Search Bar */}
         <div className="px-4 pt-3 pb-1 w-full shrink-0">
