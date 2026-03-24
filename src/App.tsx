@@ -13,6 +13,7 @@ import ContactPage from "./pages/ContactPage.tsx";
 import AuthPage from "./pages/AuthPage.tsx";
 import OrderSuccess from "./pages/OrderSuccess.tsx";
 import AdminDashboard from "./pages/AdminDashboard.tsx";
+import KitchenDisplay from "./pages/KitchenDisplay.tsx";
 import NotFound from "./pages/NotFound.tsx";
 
 const queryClient = new QueryClient();
