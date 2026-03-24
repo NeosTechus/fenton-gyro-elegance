@@ -15,7 +15,7 @@ import { menuItems, categories, MenuItem } from "@/data/menu";
 import { createCheckoutSession } from "@/lib/stripe";
 import { toast } from "sonner";
 
-type PosStep = "welcome" | "order-type" | "categories" | "items" | "item-detail" | "cart";
+type PosStep = "categories" | "items" | "item-detail" | "cart";
 type OrderType = "dine-in" | "take-out";
 
 interface CartItem {
