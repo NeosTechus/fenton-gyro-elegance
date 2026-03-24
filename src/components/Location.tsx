@@ -1,29 +1,14 @@
-import { useEffect, useRef } from "react";
 import { MapPin, Clock, Phone } from "lucide-react";
+import { useScrollReveal } from "@/hooks/useScrollReveal";
 
 const Location = () => {
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          el.classList.add("animate-fade-up");
-          observer.disconnect();
-        }
-      },
-      { threshold: 0.15 }
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
+  const infoRef = useScrollReveal("animate-slide-left", 0.15);
+  const mapRef = useScrollReveal("animate-slide-right", 0.15);
 
   return (
     <section id="visit" className="py-24 md:py-32 bg-primary text-primary-foreground section-padding">
-      <div ref={ref} className="max-w-6xl mx-auto grid md:grid-cols-2 gap-12 md:gap-16 opacity-0">
-        <div>
+      <div className="max-w-6xl mx-auto grid md:grid-cols-2 gap-12 md:gap-16">
+        <div ref={infoRef} className="opacity-0">
           <p className="text-xs uppercase tracking-[0.3em] text-primary-foreground/60 font-sans font-semibold mb-4">
             Come Visit
           </p>
@@ -31,7 +16,7 @@ const Location = () => {
             We'd Love to See You
           </h2>
 
-          <div className="space-y-8">
+          <div className="space-y-8 stagger-children">
             <div className="flex gap-4">
               <MapPin className="w-5 h-5 mt-0.5 text-primary-foreground/60 shrink-0" />
               <div>
@@ -61,7 +46,7 @@ const Location = () => {
                 <p className="font-sans font-semibold mb-1">Phone</p>
                 <a
                   href="tel:6366001333"
-                  className="text-primary-foreground/70 text-sm hover:text-primary-foreground transition-colors"
+                  className="text-primary-foreground/70 text-sm hover:text-primary-foreground transition-colors duration-200"
                 >
                   (636) 600-1333
                 </a>
@@ -70,7 +55,7 @@ const Location = () => {
           </div>
         </div>
 
-        <div className="rounded-sm overflow-hidden shadow-lg">
+        <div ref={mapRef} className="rounded-sm overflow-hidden shadow-lg opacity-0">
           <iframe
             title="Fenton Gyro location"
             src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3120.5!2d-90.4536!3d38.5127!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x87d8cde8a2a0a5a3%3A0x8a9b9b9b9b9b9b9b!2s657+Gravois+Rd%2C+Fenton%2C+MO+63026!5e0!3m2!1sen!2sus!4v1"

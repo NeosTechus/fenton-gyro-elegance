@@ -1,32 +1,14 @@
-import { useEffect, useRef } from "react";
+import { useScrollReveal } from "@/hooks/useScrollReveal";
 import interiorImage from "@/assets/interior.jpg";
 
 const About = () => {
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          el.classList.add("animate-fade-up");
-          observer.disconnect();
-        }
-      },
-      { threshold: 0.2 }
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
+  const textRef = useScrollReveal("animate-slide-left", 0.2);
+  const imageRef = useScrollReveal("animate-slide-right", 0.2);
 
   return (
     <section id="about" className="py-24 md:py-32 section-padding">
-      <div
-        ref={ref}
-        className="max-w-6xl mx-auto grid md:grid-cols-2 gap-12 md:gap-16 items-center opacity-0"
-      >
-        <div className="order-2 md:order-1">
+      <div className="max-w-6xl mx-auto grid md:grid-cols-2 gap-12 md:gap-16 items-center">
+        <div ref={textRef} className="order-2 md:order-1 opacity-0">
           <p className="text-xs uppercase tracking-[0.3em] text-accent font-sans font-semibold mb-4">
             Our Story
           </p>
@@ -45,12 +27,12 @@ const About = () => {
           </p>
         </div>
 
-        <div className="order-1 md:order-2 relative">
+        <div ref={imageRef} className="order-1 md:order-2 relative opacity-0">
           <div className="overflow-hidden rounded-sm shadow-xl shadow-foreground/5">
             <img
               src={interiorImage}
               alt="Warm interior of Fenton Gyro restaurant"
-              className="w-full aspect-[4/3] object-cover"
+              className="w-full aspect-[4/3] object-cover hover:scale-105 transition-transform duration-700"
               loading="lazy"
             />
           </div>

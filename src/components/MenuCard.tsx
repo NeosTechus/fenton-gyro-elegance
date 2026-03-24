@@ -7,12 +7,12 @@ const MenuCard = ({ item }: { item: MenuItem }) => {
   const qty = getItemQty(item.id);
 
   return (
-    <div className="bg-card rounded-sm overflow-hidden shadow-sm shadow-foreground/3 hover:shadow-md transition-shadow duration-300 group flex flex-col">
+    <div className="bg-card rounded-sm overflow-hidden shadow-sm shadow-foreground/3 hover-lift group flex flex-col">
       <div className="relative overflow-hidden">
         <img
           src={item.image}
           alt={item.name}
-          className="w-full aspect-[4/3] object-cover group-hover:scale-105 transition-transform duration-500"
+          className="w-full aspect-[4/3] object-cover group-hover:scale-105 transition-transform duration-700 ease-out"
           loading="lazy"
         />
         <span className="absolute top-3 right-3 bg-background/90 backdrop-blur-sm text-foreground font-sans font-semibold text-sm px-3 py-1 rounded-sm">
@@ -26,7 +26,7 @@ const MenuCard = ({ item }: { item: MenuItem }) => {
       </div>
 
       <div className="p-5 flex flex-col flex-1">
-        <h3 className="font-serif text-lg font-medium mb-1">{item.name}</h3>
+        <h3 className="font-serif text-lg font-medium mb-1 group-hover:text-accent transition-colors duration-200">{item.name}</h3>
         <p className="text-sm text-muted-foreground leading-relaxed mb-4 flex-1">
           {item.desc}
         </p>
@@ -35,7 +35,7 @@ const MenuCard = ({ item }: { item: MenuItem }) => {
           <div className="flex items-center gap-2">
             <button
               onClick={() => removeItem(item.id)}
-              className="w-9 h-9 flex items-center justify-center rounded-sm border border-border text-muted-foreground hover:text-foreground hover:border-foreground/30 active:scale-95 transition-all"
+              className="w-9 h-9 flex items-center justify-center rounded-sm border border-border text-muted-foreground hover:text-foreground hover:border-foreground/30 active:scale-90 transition-all duration-200"
             >
               <Minus className="w-4 h-4" />
             </button>
@@ -44,7 +44,7 @@ const MenuCard = ({ item }: { item: MenuItem }) => {
             </span>
             <button
               onClick={() => addItem(item.id)}
-              className="w-9 h-9 flex items-center justify-center rounded-sm bg-accent text-accent-foreground hover:opacity-90 active:scale-95 transition-all"
+              className="w-9 h-9 flex items-center justify-center rounded-sm bg-accent text-accent-foreground hover:opacity-90 active:scale-90 transition-all duration-200"
             >
               <Plus className="w-4 h-4" />
             </button>
@@ -52,7 +52,7 @@ const MenuCard = ({ item }: { item: MenuItem }) => {
         ) : (
           <button
             onClick={() => addItem(item.id)}
-            className="w-full py-2.5 text-sm font-sans font-semibold uppercase tracking-wider border border-border rounded-sm text-muted-foreground hover:text-foreground hover:border-foreground/30 active:scale-[0.97] transition-all"
+            className="w-full py-2.5 text-sm font-sans font-semibold uppercase tracking-wider border border-border rounded-sm text-muted-foreground hover:text-foreground hover:border-foreground/30 hover:bg-muted/50 active:scale-[0.97] transition-all duration-200"
           >
             Add to Order
           </button>

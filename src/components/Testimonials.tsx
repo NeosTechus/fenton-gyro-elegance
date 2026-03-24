@@ -1,5 +1,5 @@
-import { useEffect, useRef } from "react";
 import { Star } from "lucide-react";
+import { useScrollReveal } from "@/hooks/useScrollReveal";
 
 const reviews = [
   {
@@ -20,28 +20,13 @@ const reviews = [
 ];
 
 const Testimonials = () => {
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          el.classList.add("animate-fade-up");
-          observer.disconnect();
-        }
-      },
-      { threshold: 0.15 }
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
+  const headerRef = useScrollReveal("animate-fade-up", 0.15);
+  const gridRef = useScrollReveal("animate-fade-up", 0.1);
 
   return (
     <section id="reviews" className="py-24 md:py-32 section-padding">
-      <div ref={ref} className="max-w-6xl mx-auto opacity-0">
-        <div className="text-center mb-16">
+      <div className="max-w-6xl mx-auto">
+        <div ref={headerRef} className="text-center mb-16 opacity-0">
           <p className="text-xs uppercase tracking-[0.3em] text-accent font-sans font-semibold mb-4">
             What People Say
           </p>
@@ -50,12 +35,12 @@ const Testimonials = () => {
           </h2>
         </div>
 
-        <div className="grid md:grid-cols-3 gap-8">
+        <div ref={gridRef} className="grid md:grid-cols-3 gap-8 opacity-0">
           {reviews.map((review, i) => (
             <div
               key={review.author}
-              className="bg-card rounded-sm p-8 shadow-sm shadow-foreground/3 hover:shadow-md transition-shadow duration-300"
-              style={{ animationDelay: `${i * 100}ms` }}
+              className="bg-card rounded-sm p-8 shadow-sm shadow-foreground/3 hover-lift opacity-0 animate-fade-up"
+              style={{ animationDelay: `${200 + i * 150}ms` }}
             >
               <div className="flex gap-0.5 mb-4">
                 {[...Array(5)].map((_, j) => (
