@@ -145,15 +145,6 @@ const CartDrawer = ({ open, onClose }: { open: boolean; onClose: () => void }) =
                   onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                   className="w-full px-4 py-2.5 bg-muted border border-border rounded-sm text-sm font-sans text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-primary/40 transition-shadow"
                 />
-                {orderType === "delivery" && (
-                  <input
-                    type="text"
-                    placeholder="Delivery address *"
-                    value={formData.address}
-                    onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                    className="w-full px-4 py-2.5 bg-muted border border-border rounded-sm text-sm font-sans text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-primary/40 transition-shadow"
-                  />
-                )}
                 <textarea
                   placeholder="Special instructions (optional)"
                   rows={2}
