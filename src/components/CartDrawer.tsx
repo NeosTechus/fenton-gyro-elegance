@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { useCart } from "@/context/CartContext";
 import { createCheckoutSession } from "@/lib/stripe";
 
-type OrderType = "pickup" | "delivery";
+
 
 const CartDrawer = ({ open, onClose }: { open: boolean; onClose: () => void }) => {
   const { cartItems, totalItems, totalPrice, addItem, removeItem, clearCart } = useCart();
