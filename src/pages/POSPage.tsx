@@ -14,6 +14,7 @@ import {
   Search,
   Hash,
   RotateCcw,
+  Banknote,
 } from "lucide-react";
 import { menuItems, categories, MenuItem } from "@/data/menu";
 import { createCheckoutSession } from "@/lib/stripe";
