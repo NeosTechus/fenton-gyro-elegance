@@ -22,10 +22,6 @@ const CartDrawer = ({ open, onClose }: { open: boolean; onClose: () => void }) =
       toast.error("Please fill in your name and phone number");
       return;
     }
-    if (orderType === "delivery" && !formData.address.trim()) {
-      toast.error("Please enter a delivery address");
-      return;
-    }
 
     setIsProcessing(true);
     try {
