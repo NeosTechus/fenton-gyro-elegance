@@ -16,6 +16,7 @@ import {
 import { menuItems, categories, MenuItem } from "@/data/menu";
 import { createCheckoutSession } from "@/lib/stripe";
 import { toast } from "sonner";
+import ModifierSelector, { getModifiersTotal, getSelectedModifierNames } from "@/components/ModifierSelector";
 
 type PosStep = "categories" | "items" | "item-detail" | "cart";
 type OrderType = "dine-in" | "take-out";
@@ -23,6 +24,8 @@ type OrderType = "dine-in" | "take-out";
 interface CartItem {
   item: MenuItem;
   qty: number;
+  selectedModifiers: Record<string, string[]>;
+  modifiersTotal: number;
 }
 
 const POSPage = () => {
@@ -35,51 +38,59 @@ const POSPage = () => {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [selectedMods, setSelectedMods] = useState<Record<string, string[]>>({});
 
   const totalItems = cart.reduce((s, c) => s + c.qty, 0);
-  const totalPrice = cart.reduce((s, c) => s + c.item.price * c.qty, 0);
+  const totalPrice = cart.reduce((s, c) => s + (c.item.price + c.modifiersTotal) * c.qty, 0);
 
-  // Category images: pick first item image per category
   const categoryImages: Record<string, string> = {};
   categories.forEach((cat) => {
     const first = menuItems.find((m) => m.category === cat);
     if (first) categoryImages[cat] = first.image;
   });
 
-  const addToCart = (item: MenuItem, qty: number) => {
+  const addToCart = (item: MenuItem, qty: number, mods: Record<string, string[]>) => {
+    const modTotal = item.modifiers ? getModifiersTotal(item.modifiers, mods) : 0;
+    const modKey = JSON.stringify(mods);
     setCart((prev) => {
-      const existing = prev.find((c) => c.item.id === item.id);
+      const existing = prev.find((c) => c.item.id === item.id && JSON.stringify(c.selectedModifiers) === modKey);
       if (existing) {
         return prev.map((c) =>
-          c.item.id === item.id ? { ...c, qty: c.qty + qty } : c
+          c.item.id === item.id && JSON.stringify(c.selectedModifiers) === modKey
+            ? { ...c, qty: c.qty + qty }
+            : c
         );
       }
-      return [...prev, { item, qty }];
+      return [...prev, { item, qty, selectedModifiers: mods, modifiersTotal: modTotal }];
     });
     toast.success(`${qty}× ${item.name} added`);
   };
 
-  const updateCartQty = (id: string, delta: number) => {
+  const updateCartQty = (index: number, delta: number) => {
     setCart((prev) =>
-      prev
-        .map((c) => (c.item.id === id ? { ...c, qty: c.qty + delta } : c))
-        .filter((c) => c.qty > 0)
+      prev.map((c, i) => (i === index ? { ...c, qty: c.qty + delta } : c)).filter((c) => c.qty > 0)
     );
   };
 
-  const removeFromCart = (id: string) => {
-    setCart((prev) => prev.filter((c) => c.item.id !== id));
+  const removeFromCart = (index: number) => {
+    setCart((prev) => prev.filter((_, i) => i !== index));
   };
 
   const handleCheckout = async () => {
     if (cart.length === 0) return;
     setIsProcessing(true);
     try {
-      const items = cart.map((c) => ({
-        name: c.item.name,
-        price: c.item.price,
-        quantity: c.qty,
-      }));
+      const items = cart.flatMap((c) => {
+        const lineItems = [{ name: c.item.name, price: c.item.price, quantity: c.qty }];
+        if (c.item.modifiers) {
+          const modNames = getSelectedModifierNames(c.item.modifiers, c.selectedModifiers);
+          const modTotal = c.modifiersTotal;
+          if (modTotal > 0 && modNames.length > 0) {
+            lineItems.push({ name: `  ↳ ${modNames.join(", ")}`, price: modTotal, quantity: c.qty });
+          }
+        }
+        return lineItems;
+      });
       const checkoutUrl = await createCheckoutSession(items, "pickup", {
         name: orderType === "dine-in" ? "Dine-In Customer" : "Take-Out Customer",
         phone: "POS Order",
@@ -102,26 +113,18 @@ const POSPage = () => {
     setSelectedItem(null);
     setItemQty(1);
     setCart([]);
+    setSelectedMods({});
   };
 
-  // --- SCREENS ---
-
-  // Top bar (shared across steps)
   const TopBar = ({ backLabel, onBack }: { backLabel: string; onBack: () => void }) => (
     <header className="sticky top-0 z-40 bg-background/95 backdrop-blur-sm border-b border-border">
       <div className="flex items-center justify-between px-6 py-3">
-        <button
-          onClick={onBack}
-          className="flex items-center gap-2 text-sm font-sans font-semibold text-muted-foreground hover:text-foreground active:scale-95 transition-all"
-        >
+        <button onClick={onBack} className="flex items-center gap-2 text-sm font-sans font-semibold text-muted-foreground hover:text-foreground active:scale-95 transition-all">
           <ArrowLeft className="w-4 h-4" />
           {backLabel}
         </button>
         <p className="font-serif text-lg font-medium text-foreground">Fenton Gyro</p>
-        <button
-          onClick={() => setStep("cart")}
-          className="flex items-center gap-2 px-4 py-2 bg-accent text-accent-foreground font-sans font-semibold text-sm rounded-sm hover:opacity-90 active:scale-[0.97] transition-all"
-        >
+        <button onClick={() => setStep("cart")} className="flex items-center gap-2 px-4 py-2 bg-accent text-accent-foreground font-sans font-semibold text-sm rounded-sm hover:opacity-90 active:scale-[0.97] transition-all">
           <ShoppingBag className="w-4 h-4" />
           ${totalPrice.toFixed(2)}
           {totalItems > 0 && (
@@ -134,13 +137,8 @@ const POSPage = () => {
     </header>
   );
 
-  // Filtered items for search
   const searchResults = searchQuery.trim()
-    ? menuItems.filter(
-        (m) =>
-          m.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          m.category.toLowerCase().includes(searchQuery.toLowerCase())
-      )
+    ? menuItems.filter((m) => m.name.toLowerCase().includes(searchQuery.toLowerCase()) || m.category.toLowerCase().includes(searchQuery.toLowerCase()))
     : [];
 
   // Categories Screen
@@ -148,35 +146,21 @@ const POSPage = () => {
     return (
       <div className="h-screen bg-background flex flex-col overflow-hidden">
         <TopBar backLabel="Home" onBack={() => navigate("/")} />
-
-        {/* Search Bar */}
         <div className="px-4 pt-3 pb-1 w-full shrink-0">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <input
-              type="text"
-              placeholder="Search menu items..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-10 py-2.5 bg-card border border-border rounded-sm font-sans text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-accent/50 transition-all"
-            />
+            <input type="text" placeholder="Search menu items..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-10 pr-10 py-2.5 bg-card border border-border rounded-sm font-sans text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-accent/50 transition-all" />
             {searchQuery && (
-              <button
-                onClick={() => setSearchQuery("")}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-              >
+              <button onClick={() => setSearchQuery("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
                 <X className="w-4 h-4" />
               </button>
             )}
           </div>
         </div>
-
         <main className="flex-1 p-4 overflow-hidden">
           {searchQuery.trim() ? (
             <div className="h-full flex flex-col">
-              <p className="text-xs uppercase tracking-wider font-sans font-semibold text-muted-foreground mb-2 shrink-0">
-                {searchResults.length} result{searchResults.length !== 1 ? "s" : ""}
-              </p>
+              <p className="text-xs uppercase tracking-wider font-sans font-semibold text-muted-foreground mb-2 shrink-0">{searchResults.length} result{searchResults.length !== 1 ? "s" : ""}</p>
               {searchResults.length === 0 ? (
                 <div className="flex-1 flex flex-col items-center justify-center">
                   <Search className="w-12 h-12 text-muted-foreground/20 mb-3" />
@@ -184,34 +168,14 @@ const POSPage = () => {
                 </div>
               ) : (
                 <div className="flex-1 overflow-y-auto grid grid-cols-3 gap-3 auto-rows-min content-start">
-                  {searchResults.map((item, i) => (
-                    <button
-                      key={item.id}
-                      onClick={() => {
-                        setSelectedItem(item);
-                        setSelectedCategory(item.category);
-                        setItemQty(1);
-                        setStep("item-detail");
-                        setSearchQuery("");
-                      }}
-                      className="bg-card border border-border rounded-sm p-3 flex items-center gap-3 text-left hover-lift active:scale-[0.97] transition-all"
-                    >
+                  {searchResults.map((item) => (
+                    <button key={item.id} onClick={() => { setSelectedItem(item); setSelectedCategory(item.category); setItemQty(1); setSelectedMods({}); setStep("item-detail"); setSearchQuery(""); }} className="bg-card border border-border rounded-sm p-3 flex items-center gap-3 text-left hover:shadow-md active:scale-[0.97] transition-all">
                       <div className="flex-1 min-w-0">
-                        <p className="text-[9px] uppercase tracking-wider font-sans font-semibold text-muted-foreground mb-0.5">
-                          {item.category}
-                        </p>
-                        <h3 className="font-serif text-sm font-medium text-foreground truncate">
-                          {item.name}
-                        </h3>
-                        <p className="text-sm font-sans font-semibold text-accent">
-                          ${item.price.toFixed(2)}
-                        </p>
+                        <p className="text-[9px] uppercase tracking-wider font-sans font-semibold text-muted-foreground mb-0.5">{item.category}</p>
+                        <h3 className="font-serif text-sm font-medium text-foreground truncate">{item.name}</h3>
+                        <p className="text-sm font-sans font-semibold text-accent">${item.price.toFixed(2)}</p>
                       </div>
-                      <img
-                        src={item.image}
-                        alt={item.name}
-                        className="w-12 h-12 rounded-sm object-cover shrink-0"
-                      />
+                      <img src={item.image} alt={item.name} className="w-12 h-12 rounded-sm object-cover shrink-0" />
                     </button>
                   ))}
                 </div>
@@ -220,24 +184,10 @@ const POSPage = () => {
           ) : (
             <div className="h-full grid grid-cols-3 gap-3 auto-rows-fr">
               {categories.map((cat, i) => (
-                <button
-                  key={cat}
-                  onClick={() => {
-                    setSelectedCategory(cat);
-                    setStep("items");
-                  }}
-                  className="relative overflow-hidden rounded-sm group active:scale-[0.97] transition-all duration-200"
-                  style={{ animationDelay: `${i * 80}ms` }}
-                >
-                  <img
-                    src={categoryImages[cat]}
-                    alt={cat}
-                    className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                  />
+                <button key={cat} onClick={() => { setSelectedCategory(cat); setStep("items"); }} className="relative overflow-hidden rounded-sm group active:scale-[0.97] transition-all duration-200" style={{ animationDelay: `${i * 80}ms` }}>
+                  <img src={categoryImages[cat]} alt={cat} className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
                   <div className="absolute inset-0 bg-gradient-to-t from-foreground/70 via-foreground/20 to-transparent" />
-                  <span className="absolute inset-0 flex items-center justify-center font-serif text-lg md:text-xl font-medium text-primary-foreground drop-shadow-lg">
-                    {cat}
-                  </span>
+                  <span className="absolute inset-0 flex items-center justify-center font-serif text-lg md:text-xl font-medium text-primary-foreground drop-shadow-lg">{cat}</span>
                 </button>
               ))}
             </div>
@@ -253,49 +203,26 @@ const POSPage = () => {
     return (
       <div className="min-h-screen bg-background flex flex-col">
         <TopBar backLabel="All Categories" onBack={() => setStep("categories")} />
-
-        {/* Category hero banner */}
         <div className="relative h-32 md:h-40 overflow-hidden">
-          <img
-            src={categoryImages[selectedCategory]}
-            alt={selectedCategory}
-            className="absolute inset-0 w-full h-full object-cover"
-          />
+          <img src={categoryImages[selectedCategory]} alt={selectedCategory} className="absolute inset-0 w-full h-full object-cover" />
           <div className="absolute inset-0 bg-gradient-to-t from-foreground/70 via-foreground/30 to-transparent" />
-          <h2 className="absolute bottom-4 left-6 font-serif text-2xl md:text-3xl font-medium text-primary-foreground drop-shadow-lg">
-            {selectedCategory}
-          </h2>
+          <h2 className="absolute bottom-4 left-6 font-serif text-2xl md:text-3xl font-medium text-primary-foreground drop-shadow-lg">{selectedCategory}</h2>
         </div>
-
         <main className="flex-1 p-6">
           <div className="max-w-3xl mx-auto grid grid-cols-2 gap-4">
             {filteredItems.map((item, i) => (
-              <button
-                key={item.id}
-                onClick={() => {
-                  setSelectedItem(item);
-                  setItemQty(1);
-                  setStep("item-detail");
-                }}
-                className="bg-card border border-border rounded-sm p-4 flex items-center gap-4 text-left hover-lift active:scale-[0.97] transition-all animate-fade-up opacity-0"
-                style={{ animationDelay: `${i * 80}ms` }}
-              >
+              <button key={item.id} onClick={() => { setSelectedItem(item); setItemQty(1); setSelectedMods({}); setStep("item-detail"); }} className="bg-card border border-border rounded-sm p-4 flex items-center gap-4 text-left hover:shadow-md active:scale-[0.97] transition-all animate-fade-up opacity-0" style={{ animationDelay: `${i * 80}ms` }}>
                 <div className="flex-1 min-w-0">
-                  <h3 className="font-serif text-base font-medium text-foreground mb-1 truncate">
-                    {item.name}
-                  </h3>
-                  <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">
-                    {item.desc}
-                  </p>
-                  <p className="text-sm font-sans font-semibold text-accent mt-2">
-                    ${item.price.toFixed(2)}
-                  </p>
+                  <h3 className="font-serif text-base font-medium text-foreground mb-1 truncate">{item.name}</h3>
+                  <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">{item.desc}</p>
+                  <div className="flex items-center gap-2 mt-2">
+                    <p className="text-sm font-sans font-semibold text-accent">${item.price.toFixed(2)}</p>
+                    {item.modifiers && item.modifiers.length > 0 && (
+                      <span className="text-[9px] uppercase tracking-wider font-sans font-semibold text-muted-foreground bg-muted px-1.5 py-0.5 rounded">Customizable</span>
+                    )}
+                  </div>
                 </div>
-                <img
-                  src={item.image}
-                  alt={item.name}
-                  className="w-20 h-20 rounded-sm object-cover shrink-0"
-                />
+                <img src={item.image} alt={item.name} className="w-20 h-20 rounded-sm object-cover shrink-0" />
               </button>
             ))}
           </div>
@@ -306,109 +233,81 @@ const POSPage = () => {
 
   // Item Detail Screen
   if (step === "item-detail" && selectedItem) {
-    const detailTotal = selectedItem.price * itemQty;
+    const modsTotal = selectedItem.modifiers ? getModifiersTotal(selectedItem.modifiers, selectedMods) : 0;
+    const detailTotal = (selectedItem.price + modsTotal) * itemQty;
     return (
       <div className="min-h-screen bg-background flex flex-col">
         <header className="sticky top-0 z-40 bg-background/95 backdrop-blur-sm border-b border-border">
           <div className="flex items-center justify-between px-6 py-3">
-            <button
-              onClick={() => setStep("items")}
-              className="flex items-center gap-2 text-sm font-sans font-semibold text-muted-foreground hover:text-foreground active:scale-95 transition-all"
-            >
-              <ArrowLeft className="w-4 h-4" />
-              Menu
+            <button onClick={() => setStep("items")} className="flex items-center gap-2 text-sm font-sans font-semibold text-muted-foreground hover:text-foreground active:scale-95 transition-all">
+              <ArrowLeft className="w-4 h-4" /> Menu
             </button>
             <p className="font-serif text-lg font-medium text-foreground">Fenton Gyro</p>
             <div className="w-16" />
           </div>
         </header>
-
         <main className="flex-1 p-6 animate-fade-up opacity-0">
           <div className="max-w-2xl mx-auto grid md:grid-cols-2 gap-8">
-            {/* Left: Image & Info */}
             <div>
-              <img
-                src={selectedItem.image}
-                alt={selectedItem.name}
-                className="w-full aspect-square object-cover rounded-sm mb-6"
-              />
+              <img src={selectedItem.image} alt={selectedItem.name} className="w-full aspect-square object-cover rounded-sm mb-6" />
               <h2 className="font-serif text-2xl font-medium mb-2">{selectedItem.name}</h2>
-              <p className="text-muted-foreground leading-relaxed text-sm mb-6">
-                {selectedItem.desc}
-              </p>
+              <p className="text-muted-foreground leading-relaxed text-sm mb-6">{selectedItem.desc}</p>
 
-              {/* Price & Quantity */}
+              {/* Modifiers */}
+              {selectedItem.modifiers && selectedItem.modifiers.length > 0 && (
+                <div className="mb-6 pb-6 border-b border-border">
+                  <ModifierSelector groups={selectedItem.modifiers} selected={selectedMods} onChange={setSelectedMods} />
+                </div>
+              )}
+
               <div className="flex items-center justify-between mb-6">
-                <span className="text-2xl font-sans font-bold text-accent">
-                  ${detailTotal.toFixed(2)}
-                </span>
+                <span className="text-2xl font-sans font-bold text-accent">${detailTotal.toFixed(2)}</span>
                 <div className="flex items-center gap-3">
-                  <button
-                    onClick={() => setItemQty(Math.max(1, itemQty - 1))}
-                    className="w-10 h-10 flex items-center justify-center rounded-sm border border-border text-muted-foreground hover:text-foreground active:scale-90 transition-all"
-                  >
+                  <button onClick={() => setItemQty(Math.max(1, itemQty - 1))} className="w-10 h-10 flex items-center justify-center rounded-sm border border-border text-muted-foreground hover:text-foreground active:scale-90 transition-all">
                     <Minus className="w-4 h-4" />
                   </button>
                   <span className="w-8 text-center font-sans font-bold text-lg">{itemQty}</span>
-                  <button
-                    onClick={() => setItemQty(itemQty + 1)}
-                    className="w-10 h-10 flex items-center justify-center rounded-sm border border-border text-muted-foreground hover:text-foreground active:scale-90 transition-all"
-                  >
+                  <button onClick={() => setItemQty(itemQty + 1)} className="w-10 h-10 flex items-center justify-center rounded-sm border border-border text-muted-foreground hover:text-foreground active:scale-90 transition-all">
                     <Plus className="w-4 h-4" />
                   </button>
                 </div>
               </div>
-
-              {/* Add to Cart */}
               <button
-                onClick={() => {
-                  addToCart(selectedItem, itemQty);
-                  setStep("items");
-                }}
+                onClick={() => { addToCart(selectedItem, itemQty, selectedMods); setStep("items"); setSelectedMods({}); }}
                 className="w-full py-4 bg-accent text-accent-foreground font-sans font-semibold text-sm uppercase tracking-wider rounded-sm flex items-center justify-center gap-2 hover:opacity-90 active:scale-[0.97] transition-all shadow-lg shadow-accent/20"
               >
                 <ShoppingBag className="w-4 h-4" />
                 Add to Cart — ${detailTotal.toFixed(2)}
               </button>
             </div>
-
-            {/* Right: Additional info placeholder */}
             <div className="hidden md:block">
               {selectedItem.tag && (
                 <div className="bg-accent/10 border border-accent/20 rounded-sm p-4 mb-4">
-                  <span className="text-xs uppercase tracking-wider font-sans font-semibold text-accent">
-                    {selectedItem.tag}
-                  </span>
+                  <span className="text-xs uppercase tracking-wider font-sans font-semibold text-accent">{selectedItem.tag}</span>
                 </div>
               )}
               <div className="bg-card border border-border rounded-sm p-6">
                 <h3 className="font-serif text-lg font-medium mb-3">Order Details</h3>
                 <p className="text-sm text-muted-foreground mb-2">
-                  <span className="font-semibold text-foreground">Type:</span>{" "}
-                  {orderType === "dine-in" ? "Dine In" : "Take Out"}
+                  <span className="font-semibold text-foreground">Type:</span> {orderType === "dine-in" ? "Dine In" : "Take Out"}
                 </p>
                 <p className="text-sm text-muted-foreground mb-4">
-                  <span className="font-semibold text-foreground">Category:</span>{" "}
-                  {selectedCategory}
+                  <span className="font-semibold text-foreground">Category:</span> {selectedCategory}
                 </p>
                 {cart.length > 0 && (
-                  <>
-                    <div className="border-t border-border pt-3 mt-3">
-                      <p className="text-xs uppercase tracking-wider font-sans font-semibold text-muted-foreground mb-2">
-                        In Your Cart
-                      </p>
-                      {cart.map((c) => (
-                        <div key={c.item.id} className="flex justify-between text-sm py-1">
-                          <span>{c.qty}× {c.item.name}</span>
-                          <span className="font-semibold">${(c.item.price * c.qty).toFixed(2)}</span>
-                        </div>
-                      ))}
-                      <div className="border-t border-border mt-2 pt-2 flex justify-between font-sans font-semibold text-accent">
-                        <span>Total</span>
-                        <span>${totalPrice.toFixed(2)}</span>
+                  <div className="border-t border-border pt-3 mt-3">
+                    <p className="text-xs uppercase tracking-wider font-sans font-semibold text-muted-foreground mb-2">In Your Cart</p>
+                    {cart.map((c, idx) => (
+                      <div key={idx} className="flex justify-between text-sm py-1">
+                        <span>{c.qty}× {c.item.name}</span>
+                        <span className="font-semibold">${((c.item.price + c.modifiersTotal) * c.qty).toFixed(2)}</span>
                       </div>
+                    ))}
+                    <div className="border-t border-border mt-2 pt-2 flex justify-between font-sans font-semibold text-accent">
+                      <span>Total</span>
+                      <span>${totalPrice.toFixed(2)}</span>
                     </div>
-                  </>
+                  </div>
                 )}
               </div>
             </div>
@@ -424,90 +323,58 @@ const POSPage = () => {
       <div className="min-h-screen bg-background flex flex-col">
         <header className="sticky top-0 z-40 bg-background/95 backdrop-blur-sm border-b border-border">
           <div className="flex items-center justify-between px-6 py-3">
-            <button
-              onClick={() => setStep("categories")}
-              className="flex items-center gap-2 text-sm font-sans font-semibold text-muted-foreground hover:text-foreground active:scale-95 transition-all"
-            >
-              <ArrowLeft className="w-4 h-4" />
-              Continue Shopping
+            <button onClick={() => setStep("categories")} className="flex items-center gap-2 text-sm font-sans font-semibold text-muted-foreground hover:text-foreground active:scale-95 transition-all">
+              <ArrowLeft className="w-4 h-4" /> Continue Shopping
             </button>
             <p className="font-serif text-lg font-medium text-foreground">Your Order</p>
-            <button
-              onClick={resetOrder}
-              className="text-xs font-sans font-semibold text-destructive hover:underline"
-            >
-              Cancel Order
-            </button>
+            <button onClick={resetOrder} className="text-xs font-sans font-semibold text-destructive hover:underline">Cancel Order</button>
           </div>
         </header>
-
         <main className="flex-1 p-6 animate-fade-up opacity-0">
           <div className="max-w-xl mx-auto">
-            {/* Order type badge */}
             <div className="text-center mb-6">
               <span className="inline-flex items-center gap-2 px-4 py-2 bg-primary/10 text-primary font-sans font-semibold text-xs uppercase tracking-wider rounded-sm">
-                {orderType === "dine-in" ? (
-                  <><UtensilsCrossed className="w-3.5 h-3.5" /> Dine In</>
-                ) : (
-                  <><Package className="w-3.5 h-3.5" /> Take Out</>
-                )}
+                {orderType === "dine-in" ? (<><UtensilsCrossed className="w-3.5 h-3.5" /> Dine In</>) : (<><Package className="w-3.5 h-3.5" /> Take Out</>)}
               </span>
             </div>
-
             {cart.length === 0 ? (
               <div className="text-center py-20">
                 <ShoppingBag className="w-16 h-16 text-muted-foreground/20 mx-auto mb-4" />
                 <p className="text-muted-foreground font-sans">Your cart is empty</p>
-                <button
-                  onClick={() => setStep("categories")}
-                  className="mt-4 px-6 py-2.5 bg-accent text-accent-foreground font-sans font-semibold text-sm uppercase tracking-wider rounded-sm hover:opacity-90 active:scale-[0.97] transition-all"
-                >
-                  Browse Menu
-                </button>
+                <button onClick={() => setStep("categories")} className="mt-4 px-6 py-2.5 bg-accent text-accent-foreground font-sans font-semibold text-sm uppercase tracking-wider rounded-sm hover:opacity-90 active:scale-[0.97] transition-all">Browse Menu</button>
               </div>
             ) : (
               <>
-                {/* Cart items */}
                 <div className="space-y-3 mb-6">
-                  {cart.map((c) => (
-                    <div key={c.item.id} className="bg-card border border-border rounded-sm p-4 flex items-center gap-4">
-                      <img
-                        src={c.item.image}
-                        alt={c.item.name}
-                        className="w-16 h-16 rounded-sm object-cover shrink-0"
-                      />
-                      <div className="flex-1 min-w-0">
-                        <h3 className="font-serif text-sm font-medium truncate">{c.item.name}</h3>
-                        <p className="text-sm text-accent font-sans font-semibold">
-                          ${(c.item.price * c.qty).toFixed(2)}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        <button
-                          onClick={() => updateCartQty(c.item.id, -1)}
-                          className="w-8 h-8 flex items-center justify-center rounded-sm border border-border text-muted-foreground hover:text-foreground active:scale-90 transition-all"
-                        >
-                          <Minus className="w-3 h-3" />
-                        </button>
-                        <span className="w-6 text-center text-sm font-semibold">{c.qty}</span>
-                        <button
-                          onClick={() => updateCartQty(c.item.id, 1)}
-                          className="w-8 h-8 flex items-center justify-center rounded-sm bg-accent text-accent-foreground hover:opacity-90 active:scale-90 transition-all"
-                        >
-                          <Plus className="w-3 h-3" />
+                  {cart.map((c, idx) => {
+                    const modNames = c.item.modifiers ? getSelectedModifierNames(c.item.modifiers, c.selectedModifiers) : [];
+                    const linePrice = (c.item.price + c.modifiersTotal) * c.qty;
+                    return (
+                      <div key={idx} className="bg-card border border-border rounded-sm p-4 flex items-center gap-4">
+                        <img src={c.item.image} alt={c.item.name} className="w-16 h-16 rounded-sm object-cover shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <h3 className="font-serif text-sm font-medium truncate">{c.item.name}</h3>
+                          {modNames.length > 0 && (
+                            <p className="text-[11px] text-muted-foreground truncate mt-0.5">{modNames.join(", ")}</p>
+                          )}
+                          <p className="text-sm text-accent font-sans font-semibold">${linePrice.toFixed(2)}</p>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button onClick={() => updateCartQty(idx, -1)} className="w-8 h-8 flex items-center justify-center rounded-sm border border-border text-muted-foreground hover:text-foreground active:scale-90 transition-all">
+                            <Minus className="w-3 h-3" />
+                          </button>
+                          <span className="w-6 text-center text-sm font-semibold">{c.qty}</span>
+                          <button onClick={() => updateCartQty(idx, 1)} className="w-8 h-8 flex items-center justify-center rounded-sm bg-accent text-accent-foreground hover:opacity-90 active:scale-90 transition-all">
+                            <Plus className="w-3 h-3" />
+                          </button>
+                        </div>
+                        <button onClick={() => removeFromCart(idx)} className="w-8 h-8 flex items-center justify-center text-muted-foreground hover:text-destructive active:scale-90 transition-all">
+                          <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
-                      <button
-                        onClick={() => removeFromCart(c.item.id)}
-                        className="w-8 h-8 flex items-center justify-center text-muted-foreground hover:text-destructive active:scale-90 transition-all"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
-
-                {/* Totals */}
                 <div className="bg-card border border-border rounded-sm p-5 mb-6">
                   <div className="flex justify-between text-sm mb-2">
                     <span className="text-muted-foreground">Subtotal ({totalItems} items)</span>
@@ -519,34 +386,13 @@ const POSPage = () => {
                   </div>
                   <div className="border-t border-border pt-3 flex justify-between">
                     <span className="font-sans font-bold text-lg">Total</span>
-                    <span className="font-sans font-bold text-lg text-accent">
-                      ${(totalPrice * 1.08).toFixed(2)}
-                    </span>
+                    <span className="font-sans font-bold text-lg text-accent">${(totalPrice * 1.08).toFixed(2)}</span>
                   </div>
                 </div>
-
-                {/* Pay button */}
-                <button
-                  onClick={handleCheckout}
-                  disabled={isProcessing}
-                  className="w-full py-4 bg-accent text-accent-foreground font-sans font-semibold text-base uppercase tracking-wider rounded-sm flex items-center justify-center gap-3 hover:opacity-90 active:scale-[0.97] transition-all shadow-lg shadow-accent/20 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {isProcessing ? (
-                    <>
-                      <Loader2 className="w-5 h-5 animate-spin" />
-                      Processing…
-                    </>
-                  ) : (
-                    <>
-                      <CreditCard className="w-5 h-5" />
-                      Tap to Pay — ${(totalPrice * 1.08).toFixed(2)}
-                    </>
-                  )}
+                <button onClick={handleCheckout} disabled={isProcessing} className="w-full py-4 bg-accent text-accent-foreground font-sans font-semibold text-base uppercase tracking-wider rounded-sm flex items-center justify-center gap-3 hover:opacity-90 active:scale-[0.97] transition-all shadow-lg shadow-accent/20 disabled:opacity-50 disabled:cursor-not-allowed">
+                  {isProcessing ? (<><Loader2 className="w-5 h-5 animate-spin" /> Processing…</>) : (<><CreditCard className="w-5 h-5" /> Tap to Pay — ${(totalPrice * 1.08).toFixed(2)}</>)}
                 </button>
-
-                <p className="text-center text-xs text-muted-foreground mt-3">
-                  Payments securely processed via Stripe
-                </p>
+                <p className="text-center text-xs text-muted-foreground mt-3">Payments securely processed via Stripe</p>
               </>
             )}
           </div>
@@ -555,7 +401,6 @@ const POSPage = () => {
     );
   }
 
-  // Fallback
   return null;
 };
 
