@@ -124,3 +124,20 @@ export const getSelectedModifierNames = (
   }
   return names;
 };
+
+// Helper: get selected modifiers with name + price for detailed display
+export const getSelectedModifierDetails = (
+  groups: ModifierGroup[],
+  selected: Record<string, string[]>
+): { name: string; price: number }[] => {
+  const details: { name: string; price: number }[] = [];
+  for (const group of groups) {
+    const selectedIds = selected[group.id] || [];
+    for (const opt of group.options) {
+      if (selectedIds.includes(opt.id)) {
+        details.push({ name: opt.name, price: opt.price });
+      }
+    }
+  }
+  return details;
+};

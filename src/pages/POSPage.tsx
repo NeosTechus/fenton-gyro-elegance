@@ -16,7 +16,7 @@ import {
 import { menuItems, categories, MenuItem } from "@/data/menu";
 import { createCheckoutSession } from "@/lib/stripe";
 import { toast } from "sonner";
-import ModifierSelector, { getModifiersTotal, getSelectedModifierNames } from "@/components/ModifierSelector";
+import ModifierSelector, { getModifiersTotal, getSelectedModifierNames, getSelectedModifierDetails } from "@/components/ModifierSelector";
 
 type PosStep = "categories" | "items" | "item-detail" | "cart";
 type OrderType = "dine-in" | "take-out";
@@ -347,30 +347,49 @@ const POSPage = () => {
               <>
                 <div className="space-y-3 mb-6">
                   {cart.map((c, idx) => {
-                    const modNames = c.item.modifiers ? getSelectedModifierNames(c.item.modifiers, c.selectedModifiers) : [];
+                    const modDetails = c.item.modifiers ? getSelectedModifierDetails(c.item.modifiers, c.selectedModifiers) : [];
                     const linePrice = (c.item.price + c.modifiersTotal) * c.qty;
                     return (
-                      <div key={idx} className="bg-card border border-border rounded-sm p-4 flex items-center gap-4">
-                        <img src={c.item.image} alt={c.item.name} className="w-16 h-16 rounded-sm object-cover shrink-0" />
-                        <div className="flex-1 min-w-0">
-                          <h3 className="font-serif text-sm font-medium truncate">{c.item.name}</h3>
-                          {modNames.length > 0 && (
-                            <p className="text-[11px] text-muted-foreground truncate mt-0.5">{modNames.join(", ")}</p>
-                          )}
-                          <p className="text-sm text-accent font-sans font-semibold">${linePrice.toFixed(2)}</p>
+                      <div key={idx} className="bg-card border border-border rounded-sm p-4">
+                        <div className="flex items-start gap-4">
+                          <img src={c.item.image} alt={c.item.name} className="w-16 h-16 rounded-sm object-cover shrink-0" />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between">
+                              <h3 className="font-serif text-sm font-medium">{c.item.name}</h3>
+                              <p className="text-sm text-accent font-sans font-bold shrink-0 ml-2">${linePrice.toFixed(2)}</p>
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-0.5">${c.item.price.toFixed(2)} each × {c.qty}</p>
+                            {modDetails.length > 0 && (
+                              <div className="mt-2 pt-2 border-t border-border/50 space-y-1">
+                                {modDetails.map((mod, mi) => (
+                                  <div key={mi} className="flex items-center justify-between text-xs">
+                                    <span className="text-muted-foreground flex items-center gap-1.5">
+                                      <span className="w-1 h-1 rounded-full bg-accent shrink-0" />
+                                      {mod.name}
+                                    </span>
+                                    <span className="font-sans font-semibold text-foreground/70 shrink-0">
+                                      {mod.price > 0 ? `+$${mod.price.toFixed(2)}` : "Free"}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                          <button onClick={() => updateCartQty(idx, -1)} className="w-8 h-8 flex items-center justify-center rounded-sm border border-border text-muted-foreground hover:text-foreground active:scale-90 transition-all">
-                            <Minus className="w-3 h-3" />
-                          </button>
-                          <span className="w-6 text-center text-sm font-semibold">{c.qty}</span>
-                          <button onClick={() => updateCartQty(idx, 1)} className="w-8 h-8 flex items-center justify-center rounded-sm bg-accent text-accent-foreground hover:opacity-90 active:scale-90 transition-all">
-                            <Plus className="w-3 h-3" />
+                        <div className="flex items-center justify-between mt-3 pt-3 border-t border-border/50">
+                          <div className="flex items-center gap-2">
+                            <button onClick={() => updateCartQty(idx, -1)} className="w-8 h-8 flex items-center justify-center rounded-sm border border-border text-muted-foreground hover:text-foreground active:scale-90 transition-all">
+                              <Minus className="w-3 h-3" />
+                            </button>
+                            <span className="w-6 text-center text-sm font-semibold">{c.qty}</span>
+                            <button onClick={() => updateCartQty(idx, 1)} className="w-8 h-8 flex items-center justify-center rounded-sm bg-accent text-accent-foreground hover:opacity-90 active:scale-90 transition-all">
+                              <Plus className="w-3 h-3" />
+                            </button>
+                          </div>
+                          <button onClick={() => removeFromCart(idx)} className="w-8 h-8 flex items-center justify-center text-muted-foreground hover:text-destructive active:scale-90 transition-all">
+                            <Trash2 className="w-4 h-4" />
                           </button>
                         </div>
-                        <button onClick={() => removeFromCart(idx)} className="w-8 h-8 flex items-center justify-center text-muted-foreground hover:text-destructive active:scale-90 transition-all">
-                          <Trash2 className="w-4 h-4" />
-                        </button>
                       </div>
                     );
                   })}
