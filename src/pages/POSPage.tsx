@@ -234,12 +234,12 @@ const POSPage = () => {
               </div>
             </div>
             {!searchQuery.trim() && (
-              <div className="flex gap-1 overflow-x-auto pb-2 scrollbar-hide">
+              <div className="flex gap-1.5 overflow-x-auto pb-2 scrollbar-hide">
                 {categories.map((cat) => (
                   <button
                     key={cat}
                     onClick={() => setSelectedCategory(cat)}
-                    className={`px-3 py-1 text-xs font-sans font-semibold rounded-sm whitespace-nowrap transition-all active:scale-95 ${
+                    className={`px-4 py-2 text-sm font-sans font-semibold rounded-sm whitespace-nowrap transition-all active:scale-95 ${
                       selectedCategory === cat
                         ? "bg-primary text-primary-foreground"
                         : "bg-muted text-muted-foreground hover:text-foreground hover:bg-muted/80"
