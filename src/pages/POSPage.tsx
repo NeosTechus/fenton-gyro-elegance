@@ -102,36 +102,7 @@ const POSPage = () => {
 
   // --- SCREENS ---
 
-  // Welcome Screen
-  if (step === "welcome") {
-    return (
-      <div className="min-h-screen bg-primary flex flex-col items-center justify-center p-8">
-        <div className="text-center animate-fade-up opacity-0">
-          <h1 className="font-serif text-5xl md:text-7xl font-medium text-primary-foreground mb-4">
-            Fenton Gyro
-          </h1>
-          <p className="text-primary-foreground/60 text-sm uppercase tracking-[0.3em] font-sans font-semibold mb-2">
-            Mediterranean Kitchen
-          </p>
-          <div className="w-16 h-px bg-primary-foreground/20 mx-auto my-8" />
-          <h2 className="font-serif text-3xl md:text-4xl text-primary-foreground/90 mb-4">
-            Order & Pay Here
-          </h2>
-          <p className="text-primary-foreground/50 font-sans text-lg mb-12">
-            Touch screen to begin
-          </p>
-          <button
-            onClick={() => setStep("order-type")}
-            className="px-12 py-5 bg-accent text-accent-foreground font-sans font-semibold text-lg uppercase tracking-wider rounded-sm hover:opacity-90 active:scale-[0.97] transition-all duration-200 shadow-lg shadow-accent/30"
-          >
-            Start Order
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  // Top bar (shared across steps after welcome)
+  // Top bar (shared across steps)
   const TopBar = ({ backLabel, onBack }: { backLabel: string; onBack: () => void }) => (
     <header className="sticky top-0 z-40 bg-background/95 backdrop-blur-sm border-b border-border">
       <div className="flex items-center justify-between px-6 py-3">
