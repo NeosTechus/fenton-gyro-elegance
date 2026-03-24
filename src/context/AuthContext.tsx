@@ -124,12 +124,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     await fetchProfile(user.id);
   };
 
+  const role = getRoleForEmail(user?.email);
+
   return (
     <AuthContext.Provider
       value={{
         user,
         session,
         profile,
+        role,
         loading,
         signUp,
         signIn,
@@ -138,6 +141,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         updateProfile,
       }}
     >
+      {children}
+    </AuthContext.Provider>
+  );
       {children}
     </AuthContext.Provider>
   );
