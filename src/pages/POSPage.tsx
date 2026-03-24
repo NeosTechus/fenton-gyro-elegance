@@ -32,6 +32,7 @@ const POSPage = () => {
   const [itemQty, setItemQty] = useState(1);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const totalItems = cart.reduce((s, c) => s + c.qty, 0);
   const totalPrice = cart.reduce((s, c) => s + c.item.price * c.qty, 0);
