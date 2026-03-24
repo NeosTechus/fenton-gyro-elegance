@@ -150,7 +150,8 @@ const OrderCard = ({ order, onStatusChange, actionLabel, actionStatus }: OrderCa
       </button>
     )}
   </div>
-);
+  );
+};
 
 const KitchenDisplay = () => {
   const { role, signOut } = useAuth();
