@@ -58,11 +58,26 @@ interface OrderCardProps {
   actionStatus?: OrderStatus;
 }
 
-const OrderCard = ({ order, onStatusChange, actionLabel, actionStatus }: OrderCardProps) => (
+const SOURCE_BADGE: Record<string, { icon: typeof Monitor; label: string; cls: string }> = {
+  pos: { icon: Monitor, label: "POS", cls: "bg-blue-100 text-blue-700" },
+  kiosk: { icon: Tablet, label: "Kiosk", cls: "bg-purple-100 text-purple-700" },
+  website: { icon: Globe, label: "Website", cls: "bg-amber-100 text-amber-700" },
+};
+
+const OrderCard = ({ order, onStatusChange, actionLabel, actionStatus }: OrderCardProps) => {
+  const sourceMeta = SOURCE_BADGE[order.source] || SOURCE_BADGE.website;
+  const SourceIcon = sourceMeta.icon;
+  return (
   <div className="bg-card border border-border rounded-sm p-4 hover-lift">
     {/* Header */}
     <div className="flex items-center justify-between mb-3">
-      <span className="font-mono text-sm font-bold text-accent">#{order.id.slice(0, 6).toUpperCase()}</span>
+      <div className="flex items-center gap-2">
+        <span className="font-mono text-sm font-bold text-accent">#{order.id.slice(0, 6).toUpperCase()}</span>
+        <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-[9px] font-sans font-bold ${sourceMeta.cls}`}>
+          <SourceIcon className="w-2.5 h-2.5" />
+          {sourceMeta.label}
+        </span>
+      </div>
       <div className="flex items-center gap-2">
         <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-sm text-[10px] font-sans font-semibold ${STATUS_BADGE[order.status].bg} ${STATUS_BADGE[order.status].text}`}>
           {order.status === "received" && <CheckCircle2 className="w-3 h-3" />}
