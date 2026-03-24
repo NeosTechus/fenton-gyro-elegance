@@ -105,13 +105,30 @@ const POSPage = () => {
     }
   };
 
+  const sendToKitchen = () => {
+    const items = cart.map((c) => ({
+      name: c.item.name + (c.item.modifiers ? ` (${getSelectedModifierNames(c.item.modifiers, c.selectedModifiers).join(", ")})` : ""),
+      quantity: c.qty,
+      price: c.item.price + c.modifiersTotal,
+    }));
+    addOrder({
+      customer_name: orderType === "dine-in" ? "Dine-In" : "Take-Out",
+      customer_email: "",
+      customer_phone: `POS #${orderNumber}`,
+      items,
+      total: totalPrice * 1.08,
+      source: "pos",
+      order_type: orderType,
+      notes: `POS order #${orderNumber}`,
+    });
+  };
+
   const resetOrder = () => {
     setCart([]);
     setSelectedItem(null);
     setItemQty(1);
     setSelectedMods({});
     setSearchQuery("");
-    
   };
 
   const filteredItems = searchQuery.trim()
