@@ -12,6 +12,7 @@ import ReviewsPage from "./pages/ReviewsPage.tsx";
 import ContactPage from "./pages/ContactPage.tsx";
 import AuthPage from "./pages/AuthPage.tsx";
 import OrderSuccess from "./pages/OrderSuccess.tsx";
+import AdminDashboard from "./pages/AdminDashboard.tsx";
 import NotFound from "./pages/NotFound.tsx";
 
 const queryClient = new QueryClient();
