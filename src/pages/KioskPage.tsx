@@ -34,6 +34,7 @@ interface CartItem {
 
 const KioskPage = () => {
   const navigate = useNavigate();
+  const { addOrder } = useOrders();
   const [step, setStep] = useState<KioskStep>("welcome");
   const [orderType, setOrderType] = useState<OrderType | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
