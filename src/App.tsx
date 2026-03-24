@@ -15,6 +15,7 @@ import OrderSuccess from "./pages/OrderSuccess.tsx";
 import AdminDashboard from "./pages/AdminDashboard.tsx";
 import KitchenDisplay from "./pages/KitchenDisplay.tsx";
 import POSPage from "./pages/POSPage.tsx";
+import KioskPage from "./pages/KioskPage.tsx";
 import NotFound from "./pages/NotFound.tsx";
 
 const queryClient = new QueryClient();
