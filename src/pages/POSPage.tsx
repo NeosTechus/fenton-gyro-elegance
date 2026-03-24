@@ -109,7 +109,7 @@ const POSPage = () => {
     setItemQty(1);
     setSelectedMods({});
     setSearchQuery("");
-    toast("Order cleared");
+    
   };
 
   const filteredItems = searchQuery.trim()
