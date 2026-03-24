@@ -264,7 +264,22 @@ const KitchenDisplay = () => {
         </div>
 
         {/* Kanban columns */}
-        <div className="grid md:grid-cols-3 gap-6">
+        <div className="grid md:grid-cols-4 gap-6">
+          {/* Pending — website orders needing acceptance */}
+          <div>
+            <div className="flex items-center gap-2 mb-4">
+              <Globe className="w-4 h-4 text-yellow-600" />
+              <h2 className="font-serif text-lg font-medium">Pending ({pending.length})</h2>
+            </div>
+            <div className="space-y-4">
+              {pending.length === 0 && (
+                <p className="text-sm text-muted-foreground text-center py-12 bg-card border border-border rounded-sm">No pending orders</p>
+              )}
+              {pending.map((o) => (
+                <OrderCard key={o.id} order={o} onStatusChange={handleStatusChange} actionLabel="Accept Order" actionStatus="received" />
+              ))}
+            </div>
+          </div>
           {/* Received */}
           <div>
             <div className="flex items-center gap-2 mb-4">
