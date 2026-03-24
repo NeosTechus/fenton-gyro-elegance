@@ -134,8 +134,18 @@ const OrderCard = ({ order, onStatusChange, actionLabel, actionStatus }: OrderCa
 );
 
 const KitchenDisplay = () => {
-  const { signOut } = useAuth();
+  const { role, signOut } = useAuth();
   const [orders, setOrders] = useState<Order[]>(mockOrders);
+
+  if (role !== "chef" && role !== "admin") {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-background text-center p-8">
+        <h1 className="font-serif text-2xl font-medium mb-2">Access Denied</h1>
+        <p className="text-muted-foreground mb-4">Only chef accounts can access this page.</p>
+        <Link to="/auth" className="text-accent hover:underline text-sm font-sans font-semibold">Sign in as Chef</Link>
+      </div>
+    );
+  }
   const [refreshing, setRefreshing] = useState(false);
   const [showCompleted, setShowCompleted] = useState(false);
   const [showRejected, setShowRejected] = useState(false);

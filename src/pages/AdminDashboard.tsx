@@ -13,6 +13,8 @@ import { toast } from "sonner";
 
 const AdminDashboard = () => {
   const { user, role, signOut } = useAuth();
+  const [orders, setOrders] = useState<Order[]>(mockOrders);
+  const [refreshing, setRefreshing] = useState(false);
 
   if (role !== "admin") {
     return (
@@ -23,8 +25,6 @@ const AdminDashboard = () => {
       </div>
     );
   }
-  const [orders, setOrders] = useState<Order[]>(mockOrders);
-  const [refreshing, setRefreshing] = useState(false);
 
   const handleStatusChange = (id: string, status: OrderStatus) => {
     setOrders((prev) =>
