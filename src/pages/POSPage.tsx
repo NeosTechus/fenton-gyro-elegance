@@ -57,7 +57,7 @@ const POSPage = () => {
       }
       return [...prev, { item, qty, selectedModifiers: mods, modifiersTotal: modTotal }];
     });
-    toast.success(`${qty}× ${item.name} added`);
+    // silent add — no toast to avoid obstructing POS buttons
   };
 
   // Quick add (no modifiers, 1 qty)
