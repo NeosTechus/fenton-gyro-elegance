@@ -377,16 +377,16 @@ const POSPage = () => {
                 <span className="font-sans font-bold text-sm">Total</span>
                 <span className="font-sans font-bold text-sm text-accent">${(totalPrice * 1.08).toFixed(2)}</span>
               </div>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-3">
                 <button
                   onClick={handleCheckout}
                   disabled={isProcessing}
-                  className="py-3 bg-accent text-accent-foreground font-sans font-semibold text-sm uppercase tracking-wider rounded-sm flex items-center justify-center gap-2 hover:opacity-90 active:scale-[0.97] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="py-4 bg-accent text-accent-foreground font-sans font-bold text-base uppercase tracking-wider rounded-md flex items-center justify-center gap-2.5 hover:opacity-90 active:scale-[0.96] transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-md"
                 >
                   {isProcessing ? (
-                    <><Loader2 className="w-4 h-4 animate-spin" /> Processing…</>
+                    <><Loader2 className="w-5 h-5 animate-spin" /> Processing…</>
                   ) : (
-                    <><CreditCard className="w-4 h-4" /> Tap to Pay</>
+                    <><CreditCard className="w-5 h-5" /> Tap to Pay</>
                   )}
                 </button>
                 <button
@@ -398,12 +398,12 @@ const POSPage = () => {
                     setSelectedMods({});
                   }}
                   disabled={isProcessing}
-                  className="py-3 bg-primary text-primary-foreground font-sans font-semibold text-sm uppercase tracking-wider rounded-sm flex items-center justify-center gap-2 hover:opacity-90 active:scale-[0.97] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="py-4 bg-primary text-primary-foreground font-sans font-bold text-base uppercase tracking-wider rounded-md flex items-center justify-center gap-2.5 hover:opacity-90 active:scale-[0.96] transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-md"
                 >
-                  <Banknote className="w-4 h-4" /> Pay Cash
+                  <Banknote className="w-5 h-5" /> Pay Cash
                 </button>
               </div>
-              <p className="text-center text-[10px] text-muted-foreground mt-1">Total: ${(totalPrice * 1.08).toFixed(2)}</p>
+              <p className="text-center text-xs text-muted-foreground mt-2">Total: ${(totalPrice * 1.08).toFixed(2)}</p>
             </div>
           )}
         </div>
