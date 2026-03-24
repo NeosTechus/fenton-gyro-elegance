@@ -130,52 +130,6 @@ const POSPage = () => {
     </header>
   );
 
-  // Order Type Screen
-  if (step === "order-type") {
-    return (
-      <div className="min-h-screen bg-primary flex flex-col">
-        <header className="flex items-center justify-between px-6 py-4">
-          <button
-            onClick={resetOrder}
-            className="flex items-center gap-2 text-sm font-sans font-semibold text-primary-foreground/60 hover:text-primary-foreground active:scale-95 transition-all"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            Back
-          </button>
-          <p className="font-serif text-lg font-medium text-primary-foreground">Fenton Gyro</p>
-          <div className="w-16" />
-        </header>
-
-        <div className="flex-1 flex flex-col items-center justify-center p-8">
-          <h2 className="font-serif text-3xl md:text-4xl text-primary-foreground mb-2 animate-fade-up opacity-0">
-            Is this for here or to go?
-          </h2>
-          <p className="text-primary-foreground/50 font-sans mb-12 animate-fade-up opacity-0" style={{ animationDelay: "100ms" }}>
-            Select your dining preference
-          </p>
-          <div className="flex gap-6 animate-fade-up opacity-0" style={{ animationDelay: "200ms" }}>
-            {([
-              { type: "dine-in" as OrderType, label: "Dine In", icon: UtensilsCrossed },
-              { type: "take-out" as OrderType, label: "Take Out", icon: Package },
-            ]).map(({ type, label, icon: Icon }) => (
-              <button
-                key={type}
-                onClick={() => {
-                  setOrderType(type);
-                  setStep("categories");
-                }}
-                className="w-44 h-44 md:w-52 md:h-52 bg-card rounded-sm flex flex-col items-center justify-center gap-4 shadow-xl hover:shadow-2xl hover:-translate-y-1 active:scale-[0.97] transition-all duration-300"
-              >
-                <Icon className="w-12 h-12 text-accent" />
-                <span className="font-sans font-semibold text-lg text-foreground">{label}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   // Categories Screen
   if (step === "categories") {
     return (
