@@ -410,6 +410,7 @@ const POSPage = () => {
                 </button>
                 <button
                   onClick={() => {
+                    sendToKitchen();
                     toast.success(`Cash order #${orderNumber} confirmed — $${(totalPrice * 1.08).toFixed(2)}`);
                     setCart([]);
                     setSelectedItem(null);
