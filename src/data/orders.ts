@@ -1,5 +1,4 @@
 export type OrderStatus = "pending" | "received" | "preparing" | "ready" | "completed" | "cancelled";
-export type OrderSource = "pos" | "kiosk" | "website";
 
 export interface Order {
   id: string;
@@ -9,9 +8,8 @@ export interface Order {
   items: { name: string; quantity: number; price: number }[];
   total: number;
   status: OrderStatus;
-  source: OrderSource;
-  prep_time: number;
-  order_type: "pickup" | "delivery" | "dine-in" | "take-out";
+  prep_time: number; // minutes
+  order_type: "pickup" | "delivery";
   notes: string;
   created_at: string;
 }
@@ -29,7 +27,6 @@ export const mockOrders: Order[] = [
     ],
     total: 26.97,
     status: "received",
-    source: "website" as const,
     prep_time: 15,
     order_type: "pickup",
     notes: "",
@@ -43,7 +40,6 @@ export const mockOrders: Order[] = [
     items: [{ name: "Chicken Gyro", quantity: 1, price: 9.99 }],
     total: 9.99,
     status: "cancelled",
-    source: "website" as const,
     prep_time: 15,
     order_type: "pickup",
     notes: "",
@@ -60,7 +56,6 @@ export const mockOrders: Order[] = [
     ],
     total: 18.48,
     status: "ready",
-    source: "website" as const,
     prep_time: 15,
     order_type: "pickup",
     notes: "Extra tzatziki please",
@@ -77,7 +72,6 @@ export const mockOrders: Order[] = [
     ],
     total: 27.96,
     status: "preparing",
-    source: "website" as const,
     prep_time: 20,
     order_type: "pickup",
     notes: "",
@@ -91,7 +85,6 @@ export const mockOrders: Order[] = [
     items: [{ name: "Gyro Salad", quantity: 1, price: 11.99 }],
     total: 11.99,
     status: "completed",
-    source: "website" as const,
     prep_time: 15,
     order_type: "pickup",
     notes: "",
@@ -108,7 +101,6 @@ export const mockOrders: Order[] = [
     ],
     total: 14.48,
     status: "pending",
-    source: "website" as const,
     prep_time: 15,
     order_type: "pickup",
     notes: "",
@@ -125,7 +117,6 @@ export const mockOrders: Order[] = [
     ],
     total: 17.48,
     status: "ready",
-    source: "website" as const,
     prep_time: 15,
     order_type: "pickup",
     notes: "No onions",
@@ -142,7 +133,6 @@ export const mockOrders: Order[] = [
     ],
     total: 43.95,
     status: "received",
-    source: "website" as const,
     prep_time: 20,
     order_type: "pickup",
     notes: "Large group order",
@@ -156,7 +146,6 @@ export const mockOrders: Order[] = [
     items: [{ name: "Lentil Soup", quantity: 2, price: 5.49 }],
     total: 10.98,
     status: "completed",
-    source: "website" as const,
     prep_time: 10,
     order_type: "pickup",
     notes: "",
@@ -173,7 +162,6 @@ export const mockOrders: Order[] = [
     ],
     total: 13.98,
     status: "cancelled",
-    source: "website" as const,
     prep_time: 15,
     order_type: "pickup",
     notes: "",

@@ -5,7 +5,6 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { CartProvider } from "@/context/CartContext";
 import { AuthProvider } from "@/context/AuthContext";
-import { OrderProvider } from "@/context/OrderContext";
 import Index from "./pages/Index.tsx";
 import MenuPage from "./pages/MenuPage.tsx";
 import AboutPage from "./pages/AboutPage.tsx";
@@ -25,7 +24,6 @@ const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
       <AuthProvider>
-        <OrderProvider>
         <CartProvider>
           <Toaster />
           <Sonner />
@@ -47,7 +45,6 @@ const App = () => (
             </Routes>
           </BrowserRouter>
         </CartProvider>
-        </OrderProvider>
       </AuthProvider>
     </TooltipProvider>
   </QueryClientProvider>
