@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
   ShoppingBag,
@@ -25,6 +26,7 @@ interface CartItem {
 }
 
 const POSPage = () => {
+  const navigate = useNavigate();
   const [step, setStep] = useState<PosStep>("categories");
   const [orderType, setOrderType] = useState<OrderType | null>("dine-in");
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
@@ -145,7 +147,7 @@ const POSPage = () => {
   if (step === "categories") {
     return (
       <div className="h-screen bg-background flex flex-col overflow-hidden">
-        <TopBar backLabel="Home" onBack={() => window.history.back()} />
+        <TopBar backLabel="Home" onBack={() => navigate("/")} />
 
         {/* Search Bar */}
         <div className="px-4 pt-3 pb-1 w-full shrink-0">
