@@ -46,6 +46,13 @@ const AdminDashboard = () => {
             <h1 className="font-serif text-xl font-medium">Admin Dashboard</h1>
           </div>
           <div className="flex items-center gap-2">
+            <Link
+              to="/kitchen"
+              className="flex items-center gap-2 px-3 py-2 bg-accent text-accent-foreground text-xs font-sans font-semibold uppercase tracking-wider rounded-sm hover:opacity-90 active:scale-[0.97] transition-all"
+            >
+              <ChefHat className="w-3.5 h-3.5" />
+              Kitchen
+            </Link>
             <button className="relative w-9 h-9 flex items-center justify-center rounded-sm hover:bg-muted active:scale-95 transition-all">
               <Bell className="w-4 h-4" />
               <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-accent rounded-full" />
