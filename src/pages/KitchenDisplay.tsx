@@ -136,6 +136,10 @@ const OrderCard = ({ order, onStatusChange, actionLabel, actionStatus }: OrderCa
 const KitchenDisplay = () => {
   const { role, signOut } = useAuth();
   const [orders, setOrders] = useState<Order[]>(mockOrders);
+  const [refreshing, setRefreshing] = useState(false);
+  const [showCompleted, setShowCompleted] = useState(false);
+  const [showRejected, setShowRejected] = useState(false);
+  const [takingOrders, setTakingOrders] = useState(true);
 
   if (role !== "chef" && role !== "admin") {
     return (
@@ -146,10 +150,6 @@ const KitchenDisplay = () => {
       </div>
     );
   }
-  const [refreshing, setRefreshing] = useState(false);
-  const [showCompleted, setShowCompleted] = useState(false);
-  const [showRejected, setShowRejected] = useState(false);
-  const [takingOrders, setTakingOrders] = useState(true);
 
   const handleStatusChange = (id: string, status: OrderStatus) => {
     setOrders((prev) => prev.map((o) => (o.id === id ? { ...o, status } : o)));
