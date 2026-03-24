@@ -9,8 +9,9 @@ export interface Order {
   items: { name: string; quantity: number; price: number }[];
   total: number;
   status: OrderStatus;
-  prep_time: number; // minutes
-  order_type: "pickup" | "delivery";
+  source: OrderSource;
+  prep_time: number;
+  order_type: "pickup" | "delivery" | "dine-in" | "take-out";
   notes: string;
   created_at: string;
 }
