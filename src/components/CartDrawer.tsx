@@ -86,22 +86,8 @@ const CartDrawer = ({ open, onClose }: { open: boolean; onClose: () => void }) =
             </div>
           ) : (
             <>
-              {/* Order type */}
-              <div className="flex bg-muted rounded-sm p-1 mb-6">
-                {(["pickup", "delivery"] as OrderType[]).map((type) => (
-                  <button
-                    key={type}
-                    onClick={() => setOrderType(type)}
-                    className={`flex-1 py-2 text-xs font-sans font-semibold uppercase tracking-wider rounded-sm transition-all active:scale-[0.97] ${
-                      orderType === type
-                        ? "bg-primary text-primary-foreground shadow-sm"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    {type === "pickup" ? "Pickup" : "Delivery"}
-                  </button>
-                ))}
-              </div>
+              {/* Order type label */}
+              <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground font-sans font-semibold mb-6">Pickup Order</p>
 
               {/* Cart items */}
               <div className="space-y-3 mb-6">
