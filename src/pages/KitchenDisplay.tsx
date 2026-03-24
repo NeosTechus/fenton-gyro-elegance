@@ -139,7 +139,7 @@ const OrderCard = ({ order, onStatusChange, actionLabel, actionStatus }: OrderCa
 
 const KitchenDisplay = () => {
   const { role, signOut } = useAuth();
-  const [orders, setOrders] = useState<Order[]>(mockOrders);
+  const { orders, updateStatus, acceptAllPending } = useOrders();
   const [refreshing, setRefreshing] = useState(false);
   const [showCompleted, setShowCompleted] = useState(false);
   const [showRejected, setShowRejected] = useState(false);
@@ -156,7 +156,7 @@ const KitchenDisplay = () => {
   }
 
   const handleStatusChange = (id: string, status: OrderStatus) => {
-    setOrders((prev) => prev.map((o) => (o.id === id ? { ...o, status } : o)));
+    updateStatus(id, status);
     toast.success(`Order #${id.slice(0, 6).toUpperCase()} → ${status}`);
   };
 
@@ -166,9 +166,7 @@ const KitchenDisplay = () => {
   };
 
   const handleAcceptAll = () => {
-    setOrders((prev) =>
-      prev.map((o) => (o.status === "pending" ? { ...o, status: "received" } : o))
-    );
+    acceptAllPending();
     toast.success("All pending orders accepted");
   };
 
