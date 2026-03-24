@@ -10,6 +10,7 @@ import {
   Trash2,
   CreditCard,
   Loader2,
+  Search,
 } from "lucide-react";
 import { menuItems, categories, MenuItem } from "@/data/menu";
 import { createCheckoutSession } from "@/lib/stripe";
@@ -31,6 +32,7 @@ const POSPage = () => {
   const [itemQty, setItemQty] = useState(1);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const totalItems = cart.reduce((s, c) => s + c.qty, 0);
   const totalPrice = cart.reduce((s, c) => s + c.item.price * c.qty, 0);
@@ -130,35 +132,115 @@ const POSPage = () => {
     </header>
   );
 
+  // Filtered items for search
+  const searchResults = searchQuery.trim()
+    ? menuItems.filter(
+        (m) =>
+          m.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          m.category.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+    : [];
+
   // Categories Screen
   if (step === "categories") {
     return (
       <div className="min-h-screen bg-background flex flex-col">
         <TopBar backLabel="Home" onBack={() => window.history.back()} />
-        <main className="flex-1 p-6">
-          <div className="grid grid-cols-2 gap-4 max-w-3xl mx-auto animate-fade-up opacity-0">
-            {categories.map((cat, i) => (
+
+        {/* Search Bar */}
+        <div className="px-6 pt-4 pb-2 max-w-3xl mx-auto w-full">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <input
+              type="text"
+              placeholder="Search menu items..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-10 py-3 bg-card border border-border rounded-sm font-sans text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-accent/50 transition-all"
+            />
+            {searchQuery && (
               <button
-                key={cat}
-                onClick={() => {
-                  setSelectedCategory(cat);
-                  setStep("items");
-                }}
-                className="relative overflow-hidden rounded-sm aspect-[16/10] group active:scale-[0.97] transition-all duration-200"
-                style={{ animationDelay: `${i * 80}ms` }}
+                onClick={() => setSearchQuery("")}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
               >
-                <img
-                  src={categoryImages[cat]}
-                  alt={cat}
-                  className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-foreground/70 via-foreground/20 to-transparent" />
-                <span className="absolute inset-0 flex items-center justify-center font-serif text-xl md:text-2xl font-medium text-primary-foreground drop-shadow-lg">
-                  {cat}
-                </span>
+                <X className="w-4 h-4" />
               </button>
-            ))}
+            )}
           </div>
+        </div>
+
+        <main className="flex-1 p-6">
+          {searchQuery.trim() ? (
+            <div className="max-w-3xl mx-auto">
+              <p className="text-xs uppercase tracking-wider font-sans font-semibold text-muted-foreground mb-3">
+                {searchResults.length} result{searchResults.length !== 1 ? "s" : ""}
+              </p>
+              {searchResults.length === 0 ? (
+                <div className="text-center py-16">
+                  <Search className="w-12 h-12 text-muted-foreground/20 mx-auto mb-3" />
+                  <p className="text-muted-foreground font-sans">No items found</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-4">
+                  {searchResults.map((item, i) => (
+                    <button
+                      key={item.id}
+                      onClick={() => {
+                        setSelectedItem(item);
+                        setSelectedCategory(item.category);
+                        setItemQty(1);
+                        setStep("item-detail");
+                        setSearchQuery("");
+                      }}
+                      className="bg-card border border-border rounded-sm p-4 flex items-center gap-4 text-left hover-lift active:scale-[0.97] transition-all animate-fade-up opacity-0"
+                      style={{ animationDelay: `${i * 50}ms` }}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[10px] uppercase tracking-wider font-sans font-semibold text-muted-foreground mb-1">
+                          {item.category}
+                        </p>
+                        <h3 className="font-serif text-base font-medium text-foreground mb-1 truncate">
+                          {item.name}
+                        </h3>
+                        <p className="text-sm font-sans font-semibold text-accent">
+                          ${item.price.toFixed(2)}
+                        </p>
+                      </div>
+                      <img
+                        src={item.image}
+                        alt={item.name}
+                        className="w-16 h-16 rounded-sm object-cover shrink-0"
+                      />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-4 max-w-3xl mx-auto animate-fade-up opacity-0">
+              {categories.map((cat, i) => (
+                <button
+                  key={cat}
+                  onClick={() => {
+                    setSelectedCategory(cat);
+                    setStep("items");
+                  }}
+                  className="relative overflow-hidden rounded-sm aspect-[16/10] group active:scale-[0.97] transition-all duration-200"
+                  style={{ animationDelay: `${i * 80}ms` }}
+                >
+                  <img
+                    src={categoryImages[cat]}
+                    alt={cat}
+                    className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-foreground/70 via-foreground/20 to-transparent" />
+                  <span className="absolute inset-0 flex items-center justify-center font-serif text-xl md:text-2xl font-medium text-primary-foreground drop-shadow-lg">
+                    {cat}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
         </main>
       </div>
     );
