@@ -489,6 +489,7 @@ const KioskPage = () => {
                   </button>
                   <button
                     onClick={() => {
+                      sendToKitchen();
                       toast.success("Order placed! Please pay at the counter.");
                       resetOrder();
                     }}
