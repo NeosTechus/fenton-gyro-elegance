@@ -15,7 +15,7 @@ import { menuItems, categories, MenuItem } from "@/data/menu";
 import { createCheckoutSession } from "@/lib/stripe";
 import { toast } from "sonner";
 
-type PosStep = "welcome" | "order-type" | "categories" | "items" | "item-detail" | "cart";
+type PosStep = "categories" | "items" | "item-detail" | "cart";
 type OrderType = "dine-in" | "take-out";
 
 interface CartItem {
@@ -24,8 +24,8 @@ interface CartItem {
 }
 
 const POSPage = () => {
-  const [step, setStep] = useState<PosStep>("welcome");
-  const [orderType, setOrderType] = useState<OrderType | null>(null);
+  const [step, setStep] = useState<PosStep>("categories");
+  const [orderType, setOrderType] = useState<OrderType | null>("dine-in");
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null);
   const [itemQty, setItemQty] = useState(1);
@@ -92,8 +92,8 @@ const POSPage = () => {
   };
 
   const resetOrder = () => {
-    setStep("welcome");
-    setOrderType(null);
+    setStep("categories");
+    setOrderType("dine-in");
     setSelectedCategory(null);
     setSelectedItem(null);
     setItemQty(1);
@@ -102,36 +102,7 @@ const POSPage = () => {
 
   // --- SCREENS ---
 
-  // Welcome Screen
-  if (step === "welcome") {
-    return (
-      <div className="min-h-screen bg-primary flex flex-col items-center justify-center p-8">
-        <div className="text-center animate-fade-up opacity-0">
-          <h1 className="font-serif text-5xl md:text-7xl font-medium text-primary-foreground mb-4">
-            Fenton Gyro
-          </h1>
-          <p className="text-primary-foreground/60 text-sm uppercase tracking-[0.3em] font-sans font-semibold mb-2">
-            Mediterranean Kitchen
-          </p>
-          <div className="w-16 h-px bg-primary-foreground/20 mx-auto my-8" />
-          <h2 className="font-serif text-3xl md:text-4xl text-primary-foreground/90 mb-4">
-            Order & Pay Here
-          </h2>
-          <p className="text-primary-foreground/50 font-sans text-lg mb-12">
-            Touch screen to begin
-          </p>
-          <button
-            onClick={() => setStep("order-type")}
-            className="px-12 py-5 bg-accent text-accent-foreground font-sans font-semibold text-lg uppercase tracking-wider rounded-sm hover:opacity-90 active:scale-[0.97] transition-all duration-200 shadow-lg shadow-accent/30"
-          >
-            Start Order
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  // Top bar (shared across steps after welcome)
+  // Top bar (shared across steps)
   const TopBar = ({ backLabel, onBack }: { backLabel: string; onBack: () => void }) => (
     <header className="sticky top-0 z-40 bg-background/95 backdrop-blur-sm border-b border-border">
       <div className="flex items-center justify-between px-6 py-3">
@@ -159,57 +130,11 @@ const POSPage = () => {
     </header>
   );
 
-  // Order Type Screen
-  if (step === "order-type") {
-    return (
-      <div className="min-h-screen bg-primary flex flex-col">
-        <header className="flex items-center justify-between px-6 py-4">
-          <button
-            onClick={resetOrder}
-            className="flex items-center gap-2 text-sm font-sans font-semibold text-primary-foreground/60 hover:text-primary-foreground active:scale-95 transition-all"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            Back
-          </button>
-          <p className="font-serif text-lg font-medium text-primary-foreground">Fenton Gyro</p>
-          <div className="w-16" />
-        </header>
-
-        <div className="flex-1 flex flex-col items-center justify-center p-8">
-          <h2 className="font-serif text-3xl md:text-4xl text-primary-foreground mb-2 animate-fade-up opacity-0">
-            Is this for here or to go?
-          </h2>
-          <p className="text-primary-foreground/50 font-sans mb-12 animate-fade-up opacity-0" style={{ animationDelay: "100ms" }}>
-            Select your dining preference
-          </p>
-          <div className="flex gap-6 animate-fade-up opacity-0" style={{ animationDelay: "200ms" }}>
-            {([
-              { type: "dine-in" as OrderType, label: "Dine In", icon: UtensilsCrossed },
-              { type: "take-out" as OrderType, label: "Take Out", icon: Package },
-            ]).map(({ type, label, icon: Icon }) => (
-              <button
-                key={type}
-                onClick={() => {
-                  setOrderType(type);
-                  setStep("categories");
-                }}
-                className="w-44 h-44 md:w-52 md:h-52 bg-card rounded-sm flex flex-col items-center justify-center gap-4 shadow-xl hover:shadow-2xl hover:-translate-y-1 active:scale-[0.97] transition-all duration-300"
-              >
-                <Icon className="w-12 h-12 text-accent" />
-                <span className="font-sans font-semibold text-lg text-foreground">{label}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   // Categories Screen
   if (step === "categories") {
     return (
       <div className="min-h-screen bg-background flex flex-col">
-        <TopBar backLabel="Dining Option" onBack={() => setStep("order-type")} />
+        <TopBar backLabel="Home" onBack={() => window.history.back()} />
         <main className="flex-1 p-6">
           <div className="grid grid-cols-2 gap-4 max-w-3xl mx-auto animate-fade-up opacity-0">
             {categories.map((cat, i) => (
