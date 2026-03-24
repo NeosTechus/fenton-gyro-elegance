@@ -81,9 +81,28 @@ const KioskPage = () => {
     setCart((prev) => prev.filter((_, i) => i !== index));
   };
 
+  const sendToKitchen = () => {
+    const items = cart.map((c) => ({
+      name: c.item.name + (c.item.modifiers ? ` (${getSelectedModifierNames(c.item.modifiers, c.selectedModifiers).join(", ")})` : ""),
+      quantity: c.qty,
+      price: c.item.price + c.modifiersTotal,
+    }));
+    addOrder({
+      customer_name: orderType === "dine-in" ? "Dine-In" : "Take-Out",
+      customer_email: "",
+      customer_phone: "Kiosk",
+      items,
+      total: totalPrice * 1.08,
+      source: "kiosk",
+      order_type: orderType || "dine-in",
+      notes: `Kiosk ${orderType} order`,
+    });
+  };
+
   const handleCheckout = async () => {
     if (cart.length === 0) return;
     setIsProcessing(true);
+    sendToKitchen();
     try {
       const items = cart.flatMap((c) => {
         const lineItems = [{ name: c.item.name, price: c.item.price, quantity: c.qty }];
