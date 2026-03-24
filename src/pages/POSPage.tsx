@@ -38,9 +38,14 @@ const POSPage = () => {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [selectedSizeIdx, setSelectedSizeIdx] = useState(0);
+  const [selectedMods, setSelectedMods] = useState<Set<string>>(new Set());
 
   const totalItems = cart.reduce((s, c) => s + c.qty, 0);
-  const totalPrice = cart.reduce((s, c) => s + c.item.price * c.qty, 0);
+  const totalPrice = cart.reduce((s, c) => {
+    const modTotal = (c.selectedModifiers || []).reduce((m, mod) => m + mod.price, 0);
+    return s + (c.item.price + (c.sizeAdjust || 0) + modTotal) * c.qty;
+  }, 0);
 
   // Category images: pick first item image per category
   const categoryImages: Record<string, string> = {};
