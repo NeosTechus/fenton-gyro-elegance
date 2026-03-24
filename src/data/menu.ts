@@ -24,16 +24,6 @@ import foodLoadedFries from "@/assets/food-loaded-fries.jpg";
 import foodAyran from "@/assets/food-ayran.jpg";
 import foodSoda from "@/assets/food-soda.jpg";
 
-export interface SizeOption {
-  label: string;
-  priceAdjust: number; // added to base price
-}
-
-export interface ModifierOption {
-  name: string;
-  price: number;
-}
-
 export interface MenuItem {
   id: string;
   name: string;
@@ -42,55 +32,31 @@ export interface MenuItem {
   category: string;
   image: string;
   tag?: string;
-  sizes?: SizeOption[];
-  modifiers?: ModifierOption[];
 }
-
-export const sauceModifiers: ModifierOption[] = [
-  { name: "Tzatziki", price: 0.99 },
-  { name: "Garlic Sauce", price: 0.99 },
-  { name: "Hot Sauce", price: 0.99 },
-  { name: "Tahini", price: 0.99 },
-  { name: "Hummus", price: 1.49 },
-  { name: "BBQ Sauce", price: 1.39 },
-  { name: "Buffalo Sauce", price: 1.39 },
-  { name: "Ranch", price: 0.99 },
-];
-
-export const plateSizes: SizeOption[] = [
-  { label: "Regular", priceAdjust: 0 },
-  { label: "Large", priceAdjust: 3.00 },
-];
-
-export const drinkSizes: SizeOption[] = [
-  { label: "Small", priceAdjust: 0 },
-  { label: "Medium", priceAdjust: 0.50 },
-  { label: "Large", priceAdjust: 1.00 },
-];
 
 export const menuItems: MenuItem[] = [
   // Gyros & Wraps
-  { id: "classic-gyro", name: "Classic Gyro", desc: "Seasoned lamb & beef, fresh veggies, tzatziki, warm pita", price: 9.99, category: "Gyros & Wraps", image: foodGyro, tag: "Signature", modifiers: sauceModifiers },
-  { id: "chicken-gyro", name: "Chicken Gyro", desc: "Grilled chicken, crisp lettuce, tomatoes, house sauce", price: 9.99, category: "Gyros & Wraps", image: foodChickenGyro, modifiers: sauceModifiers },
-  { id: "falafel-wrap", name: "Falafel Wrap", desc: "Crispy falafel, pickled turnips, tahini, fresh herbs", price: 8.99, category: "Gyros & Wraps", image: foodFalafel, modifiers: sauceModifiers },
-  { id: "lamb-shawarma", name: "Lamb Shawarma Wrap", desc: "Slow-roasted lamb, garlic sauce, pickles, fresh herbs in warm pita", price: 11.99, category: "Gyros & Wraps", image: foodLambShawarma, tag: "Popular", modifiers: sauceModifiers },
-  { id: "chicken-shawarma-wrap", name: "Chicken Shawarma Wrap", desc: "Marinated grilled chicken, garlic sauce, pickles, lettuce in pita", price: 10.99, category: "Gyros & Wraps", image: foodChickenShawarmaWrap, modifiers: sauceModifiers },
+  { id: "classic-gyro", name: "Classic Gyro", desc: "Seasoned lamb & beef, fresh veggies, tzatziki, warm pita", price: 9.99, category: "Gyros & Wraps", image: foodGyro, tag: "Signature" },
+  { id: "chicken-gyro", name: "Chicken Gyro", desc: "Grilled chicken, crisp lettuce, tomatoes, house sauce", price: 9.99, category: "Gyros & Wraps", image: foodChickenGyro },
+  { id: "falafel-wrap", name: "Falafel Wrap", desc: "Crispy falafel, pickled turnips, tahini, fresh herbs", price: 8.99, category: "Gyros & Wraps", image: foodFalafel },
+  { id: "lamb-shawarma", name: "Lamb Shawarma Wrap", desc: "Slow-roasted lamb, garlic sauce, pickles, fresh herbs in warm pita", price: 11.99, category: "Gyros & Wraps", image: foodLambShawarma, tag: "Popular" },
+  { id: "chicken-shawarma-wrap", name: "Chicken Shawarma Wrap", desc: "Marinated grilled chicken, garlic sauce, pickles, lettuce in pita", price: 10.99, category: "Gyros & Wraps", image: foodChickenShawarmaWrap },
 
   // Plates
-  { id: "kofta-plate", name: "Beef Kofta Plate", desc: "Seasoned beef kofta kebabs over rice with grilled vegetables and tahini", price: 14.99, category: "Plates", image: foodKofta, tag: "Chef's Pick", sizes: plateSizes, modifiers: sauceModifiers },
-  { id: "falafel-plate", name: "Falafel Plate", desc: "Six crispy falafels with tahini, pickles, salad, hummus, and warm pita", price: 11.99, category: "Plates", image: foodFalafelPlate, sizes: plateSizes, modifiers: sauceModifiers },
-  { id: "chicken-shawarma-plate", name: "Chicken Shawarma Plate", desc: "Grilled chicken shawarma over seasoned rice with salad and garlic sauce", price: 13.99, category: "Plates", image: foodShawarmaBowl, sizes: plateSizes, modifiers: sauceModifiers },
-  { id: "lamb-shawarma-plate", name: "Lamb Shawarma Plate", desc: "Tender lamb shawarma over rice with hummus, salad, and pita", price: 15.99, category: "Plates", image: foodLambShawarma, tag: "Popular", sizes: plateSizes, modifiers: sauceModifiers },
+  { id: "kofta-plate", name: "Beef Kofta Plate", desc: "Seasoned beef kofta kebabs over rice with grilled vegetables and tahini", price: 14.99, category: "Plates", image: foodKofta, tag: "Chef's Pick" },
+  { id: "falafel-plate", name: "Falafel Plate", desc: "Six crispy falafels with tahini, pickles, salad, hummus, and warm pita", price: 11.99, category: "Plates", image: foodFalafelPlate },
+  { id: "chicken-shawarma-plate", name: "Chicken Shawarma Plate", desc: "Grilled chicken shawarma over seasoned rice with salad and garlic sauce", price: 13.99, category: "Plates", image: foodShawarmaBowl },
+  { id: "lamb-shawarma-plate", name: "Lamb Shawarma Plate", desc: "Tender lamb shawarma over rice with hummus, salad, and pita", price: 15.99, category: "Plates", image: foodLambShawarma, tag: "Popular" },
 
   // Bowls
-  { id: "gyro-bowl", name: "Gyro Bowl", desc: "Gyro meat over seasoned rice, salad, tzatziki, pita on the side", price: 12.99, category: "Bowls", image: foodGyroBowl, tag: "Popular", sizes: plateSizes, modifiers: sauceModifiers },
-  { id: "chicken-bowl", name: "Chicken Shawarma Bowl", desc: "Marinated chicken, hummus, tabbouleh, pickles over rice", price: 12.99, category: "Bowls", image: foodShawarmaBowl, sizes: plateSizes, modifiers: sauceModifiers },
-  { id: "falafel-bowl", name: "Falafel Bowl", desc: "Crispy falafel over rice with hummus, pickles, tahini, and fresh veggies", price: 11.99, category: "Bowls", image: foodFalafelPlate, sizes: plateSizes, modifiers: sauceModifiers },
+  { id: "gyro-bowl", name: "Gyro Bowl", desc: "Gyro meat over seasoned rice, salad, tzatziki, pita on the side", price: 12.99, category: "Bowls", image: foodGyroBowl, tag: "Popular" },
+  { id: "chicken-bowl", name: "Chicken Shawarma Bowl", desc: "Marinated chicken, hummus, tabbouleh, pickles over rice", price: 12.99, category: "Bowls", image: foodShawarmaBowl },
+  { id: "falafel-bowl", name: "Falafel Bowl", desc: "Crispy falafel over rice with hummus, pickles, tahini, and fresh veggies", price: 11.99, category: "Bowls", image: foodFalafelPlate },
 
   // Salads
-  { id: "gyro-salad", name: "Gyro Salad", desc: "Mixed greens, gyro meat, feta, olives, peppers, house vinaigrette", price: 11.99, category: "Salads", image: foodGyroSalad, sizes: plateSizes },
-  { id: "fattoush-salad", name: "Fattoush Salad", desc: "Crispy pita chips, fresh vegetables, pomegranate, sumac dressing", price: 9.99, category: "Salads", image: foodFattoush, sizes: plateSizes },
-  { id: "falafel-salad", name: "Falafel Salad", desc: "Crispy falafel over mixed greens with chickpeas, tomatoes, tahini dressing", price: 10.99, category: "Salads", image: foodFalafelSalad, sizes: plateSizes },
+  { id: "gyro-salad", name: "Gyro Salad", desc: "Mixed greens, gyro meat, feta, olives, peppers, house vinaigrette", price: 11.99, category: "Salads", image: foodGyroSalad },
+  { id: "fattoush-salad", name: "Fattoush Salad", desc: "Crispy pita chips, fresh vegetables, pomegranate, sumac dressing", price: 9.99, category: "Salads", image: foodFattoush },
+  { id: "falafel-salad", name: "Falafel Salad", desc: "Crispy falafel over mixed greens with chickpeas, tomatoes, tahini dressing", price: 10.99, category: "Salads", image: foodFalafelSalad },
 
   // Sides & Appetizers
   { id: "hummus-pita", name: "Hummus & Pita", desc: "Silky chickpea hummus with olive oil, served with two warm pitas", price: 6.99, category: "Sides", image: foodHummus, tag: "Popular" },
@@ -98,7 +64,7 @@ export const menuItems: MenuItem[] = [
   { id: "grape-leaves", name: "Stuffed Grape Leaves", desc: "Hand-rolled grape leaves stuffed with seasoned rice and herbs (6 pcs)", price: 6.99, category: "Sides", image: foodGrapeLeaves },
   { id: "lentil-soup", name: "Lentil Soup", desc: "Slow-simmered red lentils with cumin, lemon, warm spices", price: 5.49, category: "Sides", image: foodLentilSoup },
   { id: "french-fries", name: "Seasoned Fries", desc: "Crispy fries with Mediterranean spice blend", price: 4.49, category: "Sides", image: foodFries },
-  { id: "loaded-fries", name: "Loaded Gyro Fries", desc: "Seasoned fries topped with gyro meat, feta cheese, and tzatziki", price: 8.99, category: "Sides", image: foodLoadedFries, tag: "Must Try", modifiers: sauceModifiers },
+  { id: "loaded-fries", name: "Loaded Gyro Fries", desc: "Seasoned fries topped with gyro meat, feta cheese, and tzatziki", price: 8.99, category: "Sides", image: foodLoadedFries, tag: "Must Try" },
 
   // Desserts
   { id: "baklava", name: "Chocolate Baklava", desc: "Flaky phyllo, walnuts, dark chocolate, honey syrup", price: 4.99, category: "Desserts", image: foodBaklava, tag: "Must Try" },
@@ -106,10 +72,10 @@ export const menuItems: MenuItem[] = [
   { id: "kunafa", name: "Kunafa", desc: "Golden crispy phyllo with melted cheese, drizzled with sweet syrup", price: 5.99, category: "Desserts", image: foodKunafa, tag: "Popular" },
 
   // Drinks
-  { id: "mint-lemonade", name: "Mint Lemonade", desc: "Fresh-squeezed lemonade with mint leaves over ice", price: 3.99, category: "Drinks", image: foodMintLemonade, tag: "Refreshing", sizes: drinkSizes },
+  { id: "mint-lemonade", name: "Mint Lemonade", desc: "Fresh-squeezed lemonade with mint leaves over ice", price: 3.99, category: "Drinks", image: foodMintLemonade, tag: "Refreshing" },
   { id: "turkish-tea", name: "Turkish Tea", desc: "Traditional brewed Turkish tea served in a tulip glass", price: 2.49, category: "Drinks", image: foodTurkishTea },
-  { id: "ayran", name: "Ayran", desc: "Chilled salted yogurt drink, refreshing and traditional", price: 2.99, category: "Drinks", image: foodAyran, sizes: drinkSizes },
-  { id: "soda", name: "Fountain Soda", desc: "Coca-Cola, Sprite, or Fanta — your choice", price: 2.49, category: "Drinks", image: foodSoda, sizes: drinkSizes },
+  { id: "ayran", name: "Ayran", desc: "Chilled salted yogurt drink, refreshing and traditional", price: 2.99, category: "Drinks", image: foodAyran },
+  { id: "soda", name: "Fountain Soda", desc: "Coca-Cola, Sprite, or Fanta — your choice", price: 2.49, category: "Drinks", image: foodSoda },
   { id: "water", name: "Bottled Water", desc: "Chilled bottled water", price: 1.99, category: "Drinks", image: foodMintLemonade },
 ];
 
