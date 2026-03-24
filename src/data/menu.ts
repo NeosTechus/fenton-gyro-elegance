@@ -140,10 +140,10 @@ export const menuItems: MenuItem[] = [
   { id: "kunafa", name: "Kunafa", desc: "Golden crispy phyllo with melted cheese, drizzled with sweet syrup", price: 5.99, category: "Desserts", image: foodKunafa, tag: "Popular" },
 
   // Drinks
-  { id: "mint-lemonade", name: "Mint Lemonade", desc: "Fresh-squeezed lemonade with mint leaves over ice", price: 3.99, category: "Drinks", image: foodMintLemonade, tag: "Refreshing" },
+  { id: "mint-lemonade", name: "Mint Lemonade", desc: "Fresh-squeezed lemonade with mint leaves over ice", price: 3.99, category: "Drinks", image: foodMintLemonade, tag: "Refreshing", modifiers: [drinkSize] },
   { id: "turkish-tea", name: "Turkish Tea", desc: "Traditional brewed Turkish tea served in a tulip glass", price: 2.49, category: "Drinks", image: foodTurkishTea },
-  { id: "ayran", name: "Ayran", desc: "Chilled salted yogurt drink, refreshing and traditional", price: 2.99, category: "Drinks", image: foodAyran },
-  { id: "soda", name: "Fountain Soda", desc: "Coca-Cola, Sprite, or Fanta — your choice", price: 2.49, category: "Drinks", image: foodSoda },
+  { id: "ayran", name: "Ayran", desc: "Chilled salted yogurt drink, refreshing and traditional", price: 2.99, category: "Drinks", image: foodAyran, modifiers: [drinkSize] },
+  { id: "soda", name: "Fountain Soda", desc: "Coca-Cola, Sprite, or Fanta — your choice", price: 2.49, category: "Drinks", image: foodSoda, modifiers: [drinkSize] },
   { id: "water", name: "Bottled Water", desc: "Chilled bottled water", price: 1.99, category: "Drinks", image: foodMintLemonade },
 ];
 
