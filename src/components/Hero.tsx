@@ -17,7 +17,7 @@ const Hero = () => {
 
       <div
         ref={ref}
-        className="relative z-10 max-w-6xl mx-auto w-full section-padding pb-16 md:pb-24 opacity-0"
+        className="relative z-10 max-w-6xl mx-auto w-full section-padding pb-16 md:pb-24 opacity-0 text-center flex flex-col items-center"
       >
         <p
           className="text-sm uppercase tracking-[0.25em] text-secondary/80 font-sans font-medium mb-4 opacity-0 animate-fade-up"
@@ -26,14 +26,20 @@ const Hero = () => {
           Mediterranean Kitchen · Fenton, MO
         </p>
         <h1
-          className="font-serif text-5xl md:text-7xl lg:text-8xl font-medium text-primary-foreground leading-[0.95] mb-6 text-balance opacity-0 animate-fade-up"
+          className="font-serif text-6xl md:text-8xl lg:text-9xl font-medium text-primary-foreground leading-[0.95] mb-4 text-balance opacity-0 animate-fade-up"
           style={{ animationDelay: "400ms" }}
         >
           Fenton Gyro
         </h1>
+        <p
+          className="text-lg md:text-xl text-secondary/70 font-sans mb-6 opacity-0 animate-fade-up max-w-xl"
+          style={{ animationDelay: "500ms" }}
+        >
+          Authentic Mediterranean flavors, made fresh daily
+        </p>
 
         <div
-          className="flex flex-wrap items-center gap-4 text-secondary/90 text-sm font-sans mb-8 opacity-0 animate-fade-up"
+          className="flex flex-wrap items-center justify-center gap-4 text-secondary/90 text-sm font-sans mb-8 opacity-0 animate-fade-up"
           style={{ animationDelay: "600ms" }}
         >
           <span className="flex items-center gap-1.5">
@@ -50,7 +56,7 @@ const Hero = () => {
         </div>
 
         <div
-          className="flex flex-wrap gap-3 opacity-0 animate-fade-up"
+          className="flex flex-wrap justify-center gap-3 opacity-0 animate-fade-up"
           style={{ animationDelay: "800ms" }}
         >
           <Link
