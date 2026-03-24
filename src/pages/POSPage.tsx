@@ -20,6 +20,7 @@ import { menuItems, categories, MenuItem } from "@/data/menu";
 import { createCheckoutSession } from "@/lib/stripe";
 import { toast } from "sonner";
 import ModifierSelector, { getModifiersTotal, getSelectedModifierNames, getSelectedModifierDetails } from "@/components/ModifierSelector";
+import { useOrders } from "@/context/OrderContext";
 
 type OrderType = "dine-in" | "take-out";
 
