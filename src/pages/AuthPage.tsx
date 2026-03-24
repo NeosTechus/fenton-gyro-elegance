@@ -24,7 +24,10 @@ const AuthPage = () => {
       if (mode === "signin") {
         await signIn(email, password);
         toast.success("Welcome back!");
-        navigate("/");
+        const role = getRoleForEmail(email);
+        if (role === "admin") navigate("/admin");
+        else if (role === "chef") navigate("/kitchen");
+        else navigate("/");
       } else {
         await signUp(email, password, displayName);
         toast.success("Account created! Check your email to verify.");

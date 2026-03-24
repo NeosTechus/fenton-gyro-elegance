@@ -12,7 +12,17 @@ import OrdersTable from "@/components/admin/OrdersTable";
 import { toast } from "sonner";
 
 const AdminDashboard = () => {
-  const { user, signOut } = useAuth();
+  const { user, role, signOut } = useAuth();
+
+  if (role !== "admin") {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-background text-center p-8">
+        <h1 className="font-serif text-2xl font-medium mb-2">Access Denied</h1>
+        <p className="text-muted-foreground mb-4">Only admin accounts can access this page.</p>
+        <Link to="/auth" className="text-accent hover:underline text-sm font-sans font-semibold">Sign in as Admin</Link>
+      </div>
+    );
+  }
   const [orders, setOrders] = useState<Order[]>(mockOrders);
   const [refreshing, setRefreshing] = useState(false);
 
