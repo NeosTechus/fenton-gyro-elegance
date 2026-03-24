@@ -14,6 +14,7 @@ import AuthPage from "./pages/AuthPage.tsx";
 import OrderSuccess from "./pages/OrderSuccess.tsx";
 import AdminDashboard from "./pages/AdminDashboard.tsx";
 import KitchenDisplay from "./pages/KitchenDisplay.tsx";
+import POSPage from "./pages/POSPage.tsx";
 import NotFound from "./pages/NotFound.tsx";
 
 const queryClient = new QueryClient();
@@ -36,6 +37,7 @@ const App = () => (
               <Route path="/order-success" element={<OrderSuccess />} />
               <Route path="/admin" element={<AdminDashboard />} />
               <Route path="/kitchen" element={<KitchenDisplay />} />
+              <Route path="/pos" element={<POSPage />} />
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />
             </Routes>
