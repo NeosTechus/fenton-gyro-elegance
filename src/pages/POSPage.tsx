@@ -288,7 +288,7 @@ const POSPage = () => {
         </div>
 
         {/* RIGHT: Cart sidebar */}
-        <div className="w-72 lg:w-80 bg-background border-l border-border flex flex-col shrink-0">
+        <div className="w-80 lg:w-96 bg-background border-l border-border flex flex-col shrink-0">
           {/* Cart header */}
           <div className="px-4 py-3 border-b border-border flex items-center justify-between shrink-0">
             <div className="flex items-center gap-2">
