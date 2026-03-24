@@ -24,6 +24,16 @@ import foodLoadedFries from "@/assets/food-loaded-fries.jpg";
 import foodAyran from "@/assets/food-ayran.jpg";
 import foodSoda from "@/assets/food-soda.jpg";
 
+export interface SizeOption {
+  label: string;
+  priceAdjust: number; // added to base price
+}
+
+export interface ModifierOption {
+  name: string;
+  price: number;
+}
+
 export interface MenuItem {
   id: string;
   name: string;
@@ -32,7 +42,31 @@ export interface MenuItem {
   category: string;
   image: string;
   tag?: string;
+  sizes?: SizeOption[];
+  modifiers?: ModifierOption[];
 }
+
+export const sauceModifiers: ModifierOption[] = [
+  { name: "Tzatziki", price: 0.99 },
+  { name: "Garlic Sauce", price: 0.99 },
+  { name: "Hot Sauce", price: 0.99 },
+  { name: "Tahini", price: 0.99 },
+  { name: "Hummus", price: 1.49 },
+  { name: "BBQ Sauce", price: 1.39 },
+  { name: "Buffalo Sauce", price: 1.39 },
+  { name: "Ranch", price: 0.99 },
+];
+
+export const plateSizes: SizeOption[] = [
+  { label: "Regular", priceAdjust: 0 },
+  { label: "Large", priceAdjust: 3.00 },
+];
+
+export const drinkSizes: SizeOption[] = [
+  { label: "Small", priceAdjust: 0 },
+  { label: "Medium", priceAdjust: 0.50 },
+  { label: "Large", priceAdjust: 1.00 },
+];
 
 export const menuItems: MenuItem[] = [
   // Gyros & Wraps
