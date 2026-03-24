@@ -13,7 +13,7 @@ import {
   Loader2,
   Search,
 } from "lucide-react";
-import { menuItems, categories, MenuItem } from "@/data/menu";
+import { menuItems, categories, MenuItem, ModifierOption } from "@/data/menu";
 import { createCheckoutSession } from "@/lib/stripe";
 import { toast } from "sonner";
 
@@ -23,6 +23,9 @@ type OrderType = "dine-in" | "take-out";
 interface CartItem {
   item: MenuItem;
   qty: number;
+  selectedSize?: string;
+  sizeAdjust?: number;
+  selectedModifiers?: { name: string; price: number }[];
 }
 
 const POSPage = () => {
