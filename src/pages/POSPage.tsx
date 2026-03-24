@@ -24,8 +24,8 @@ interface CartItem {
 }
 
 const POSPage = () => {
-  const [step, setStep] = useState<PosStep>("welcome");
-  const [orderType, setOrderType] = useState<OrderType | null>(null);
+  const [step, setStep] = useState<PosStep>("categories");
+  const [orderType, setOrderType] = useState<OrderType | null>("dine-in");
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null);
   const [itemQty, setItemQty] = useState(1);
