@@ -92,8 +92,8 @@ const POSPage = () => {
   };
 
   const resetOrder = () => {
-    setStep("welcome");
-    setOrderType(null);
+    setStep("categories");
+    setOrderType("dine-in");
     setSelectedCategory(null);
     setSelectedItem(null);
     setItemQty(1);
