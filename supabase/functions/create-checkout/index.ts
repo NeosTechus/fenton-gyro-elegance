@@ -31,9 +31,6 @@ serve(async (req) => {
     if (!customerInfo?.name || !customerInfo?.phone) {
       throw new Error("Customer name and phone are required");
     }
-    if (orderType === "delivery" && !customerInfo?.address) {
-      throw new Error("Delivery address is required");
-    }
 
     const lineItems = items.map(
       (item: { name: string; price: number; quantity: number }) => ({
