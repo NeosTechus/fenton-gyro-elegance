@@ -134,7 +134,7 @@ const POSPage = () => {
   if (step === "categories") {
     return (
       <div className="min-h-screen bg-background flex flex-col">
-        <TopBar backLabel="Dining Option" onBack={() => setStep("order-type")} />
+        <TopBar backLabel="Home" onBack={() => window.history.back()} />
         <main className="flex-1 p-6">
           <div className="grid grid-cols-2 gap-4 max-w-3xl mx-auto animate-fade-up opacity-0">
             {categories.map((cat, i) => (
