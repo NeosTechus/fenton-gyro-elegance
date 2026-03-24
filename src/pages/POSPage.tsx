@@ -16,7 +16,7 @@ import {
 import { menuItems, categories, MenuItem } from "@/data/menu";
 import { createCheckoutSession } from "@/lib/stripe";
 import { toast } from "sonner";
-import ModifierSelector, { getModifiersTotal, getSelectedModifierNames } from "@/components/ModifierSelector";
+import ModifierSelector, { getModifiersTotal, getSelectedModifierNames, getSelectedModifierDetails } from "@/components/ModifierSelector";
 
 type PosStep = "categories" | "items" | "item-detail" | "cart";
 type OrderType = "dine-in" | "take-out";
