@@ -12,9 +12,13 @@ import {
   ChevronDown,
   X,
   LogOut,
+  Monitor,
+  Tablet,
+  Globe,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
-import { mockOrders, Order, OrderStatus } from "@/data/orders";
+import { useOrders } from "@/context/OrderContext";
+import { Order, OrderStatus } from "@/data/orders";
 import { toast } from "sonner";
 
 const STATUS_BADGE: Record<OrderStatus, { bg: string; text: string; label: string }> = {
