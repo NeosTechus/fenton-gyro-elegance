@@ -1,4 +1,5 @@
 export type OrderStatus = "pending" | "received" | "preparing" | "ready" | "completed" | "cancelled";
+export type OrderSource = "pos" | "kiosk" | "website";
 
 export interface Order {
   id: string;
