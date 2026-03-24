@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
+import { getRoleForEmail } from "@/lib/roles";
 import { toast } from "sonner";
 import { ArrowLeft, Mail, Lock, User, Eye, EyeOff, LogIn, UserPlus } from "lucide-react";
 import Navbar from "@/components/Navbar";
@@ -23,7 +24,10 @@ const AuthPage = () => {
       if (mode === "signin") {
         await signIn(email, password);
         toast.success("Welcome back!");
-        navigate("/");
+        const role = getRoleForEmail(email);
+        if (role === "admin") navigate("/admin");
+        else if (role === "chef") navigate("/kitchen");
+        else navigate("/");
       } else {
         await signUp(email, password, displayName);
         toast.success("Account created! Check your email to verify.");

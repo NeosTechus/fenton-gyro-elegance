@@ -7,6 +7,7 @@ import {
 } from "react";
 import { User, Session } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
+import { AppRole, getRoleForEmail } from "@/lib/roles";
 
 interface Profile {
   id: string;
@@ -20,6 +21,7 @@ interface AuthContextType {
   user: User | null;
   session: Session | null;
   profile: Profile | null;
+  role: AppRole;
   loading: boolean;
   signUp: (email: string, password: string, displayName: string) => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
@@ -122,12 +124,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     await fetchProfile(user.id);
   };
 
+  const role = getRoleForEmail(user?.email);
+
   return (
     <AuthContext.Provider
       value={{
         user,
         session,
         profile,
+        role,
         loading,
         signUp,
         signIn,
