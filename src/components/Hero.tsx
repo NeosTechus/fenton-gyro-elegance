@@ -51,10 +51,10 @@ const Hero = () => {
 
         {/* Main Title with shimmer */}
         <h1
-          className="font-serif text-6xl md:text-8xl lg:text-9xl font-medium leading-[0.95] mb-3 text-balance opacity-0 animate-fade-up animate-text-shimmer"
+          className="font-serif text-6xl md:text-8xl lg:text-9xl font-medium leading-[0.95] mb-3 text-balance opacity-0 animate-fade-up"
           style={{ animationDelay: "400ms" }}
         >
-          Fenton Gyro
+          <span className="animate-text-shimmer inline-block">Fenton Gyro</span>
         </h1>
 
         {/* Decorative line */}
