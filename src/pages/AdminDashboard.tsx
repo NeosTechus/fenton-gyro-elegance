@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowLeft, RefreshCw, Bell, LogOut } from "lucide-react";
+import { ArrowLeft, RefreshCw, Bell, LogOut, ChefHat } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { mockOrders, Order, OrderStatus } from "@/data/orders";
 import StatsCards from "@/components/admin/StatsCards";
