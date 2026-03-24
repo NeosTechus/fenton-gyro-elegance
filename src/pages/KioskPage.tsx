@@ -20,6 +20,7 @@ import { createCheckoutSession } from "@/lib/stripe";
 import { toast } from "sonner";
 import heroImage from "@/assets/hero-food.jpg";
 import ModifierSelector, { getModifiersTotal, getSelectedModifierNames, getSelectedModifierDetails } from "@/components/ModifierSelector";
+import { useOrders } from "@/context/OrderContext";
 
 type KioskStep = "welcome" | "order-type" | "categories" | "items" | "item-detail" | "cart";
 type OrderType = "dine-in" | "take-out";
