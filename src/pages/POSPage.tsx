@@ -10,6 +10,7 @@ import {
   Trash2,
   CreditCard,
   Loader2,
+  Search,
 } from "lucide-react";
 import { menuItems, categories, MenuItem } from "@/data/menu";
 import { createCheckoutSession } from "@/lib/stripe";
