@@ -12,9 +12,13 @@ import {
   ChevronDown,
   X,
   LogOut,
+  Monitor,
+  Tablet,
+  Globe,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
-import { mockOrders, Order, OrderStatus } from "@/data/orders";
+import { useOrders } from "@/context/OrderContext";
+import { Order, OrderStatus } from "@/data/orders";
 import { toast } from "sonner";
 
 const STATUS_BADGE: Record<OrderStatus, { bg: string; text: string; label: string }> = {
@@ -54,11 +58,26 @@ interface OrderCardProps {
   actionStatus?: OrderStatus;
 }
 
-const OrderCard = ({ order, onStatusChange, actionLabel, actionStatus }: OrderCardProps) => (
+const SOURCE_BADGE: Record<string, { icon: typeof Monitor; label: string; cls: string }> = {
+  pos: { icon: Monitor, label: "POS", cls: "bg-blue-100 text-blue-700" },
+  kiosk: { icon: Tablet, label: "Kiosk", cls: "bg-purple-100 text-purple-700" },
+  website: { icon: Globe, label: "Website", cls: "bg-amber-100 text-amber-700" },
+};
+
+const OrderCard = ({ order, onStatusChange, actionLabel, actionStatus }: OrderCardProps) => {
+  const sourceMeta = SOURCE_BADGE[order.source] || SOURCE_BADGE.website;
+  const SourceIcon = sourceMeta.icon;
+  return (
   <div className="bg-card border border-border rounded-sm p-4 hover-lift">
     {/* Header */}
     <div className="flex items-center justify-between mb-3">
-      <span className="font-mono text-sm font-bold text-accent">#{order.id.slice(0, 6).toUpperCase()}</span>
+      <div className="flex items-center gap-2">
+        <span className="font-mono text-sm font-bold text-accent">#{order.id.slice(0, 6).toUpperCase()}</span>
+        <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-[9px] font-sans font-bold ${sourceMeta.cls}`}>
+          <SourceIcon className="w-2.5 h-2.5" />
+          {sourceMeta.label}
+        </span>
+      </div>
       <div className="flex items-center gap-2">
         <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-sm text-[10px] font-sans font-semibold ${STATUS_BADGE[order.status].bg} ${STATUS_BADGE[order.status].text}`}>
           {order.status === "received" && <CheckCircle2 className="w-3 h-3" />}
@@ -131,11 +150,12 @@ const OrderCard = ({ order, onStatusChange, actionLabel, actionStatus }: OrderCa
       </button>
     )}
   </div>
-);
+  );
+};
 
 const KitchenDisplay = () => {
   const { role, signOut } = useAuth();
-  const [orders, setOrders] = useState<Order[]>(mockOrders);
+  const { orders, updateStatus, acceptAllPending } = useOrders();
   const [refreshing, setRefreshing] = useState(false);
   const [showCompleted, setShowCompleted] = useState(false);
   const [showRejected, setShowRejected] = useState(false);
@@ -152,7 +172,7 @@ const KitchenDisplay = () => {
   }
 
   const handleStatusChange = (id: string, status: OrderStatus) => {
-    setOrders((prev) => prev.map((o) => (o.id === id ? { ...o, status } : o)));
+    updateStatus(id, status);
     toast.success(`Order #${id.slice(0, 6).toUpperCase()} → ${status}`);
   };
 
@@ -162,13 +182,12 @@ const KitchenDisplay = () => {
   };
 
   const handleAcceptAll = () => {
-    setOrders((prev) =>
-      prev.map((o) => (o.status === "pending" ? { ...o, status: "received" } : o))
-    );
+    acceptAllPending();
     toast.success("All pending orders accepted");
   };
 
   const countByStatus = (s: OrderStatus) => orders.filter((o) => o.status === s).length;
+  const pending = orders.filter((o) => o.status === "pending");
   const received = orders.filter((o) => o.status === "received");
   const preparing = orders.filter((o) => o.status === "preparing");
   const ready = orders.filter((o) => o.status === "ready");
@@ -245,7 +264,22 @@ const KitchenDisplay = () => {
         </div>
 
         {/* Kanban columns */}
-        <div className="grid md:grid-cols-3 gap-6">
+        <div className="grid md:grid-cols-4 gap-6">
+          {/* Pending — website orders needing acceptance */}
+          <div>
+            <div className="flex items-center gap-2 mb-4">
+              <Globe className="w-4 h-4 text-yellow-600" />
+              <h2 className="font-serif text-lg font-medium">Pending ({pending.length})</h2>
+            </div>
+            <div className="space-y-4">
+              {pending.length === 0 && (
+                <p className="text-sm text-muted-foreground text-center py-12 bg-card border border-border rounded-sm">No pending orders</p>
+              )}
+              {pending.map((o) => (
+                <OrderCard key={o.id} order={o} onStatusChange={handleStatusChange} actionLabel="Accept Order" actionStatus="received" />
+              ))}
+            </div>
+          </div>
           {/* Received */}
           <div>
             <div className="flex items-center gap-2 mb-4">

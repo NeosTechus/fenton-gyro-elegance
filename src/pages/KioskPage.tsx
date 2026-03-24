@@ -20,6 +20,7 @@ import { createCheckoutSession } from "@/lib/stripe";
 import { toast } from "sonner";
 import heroImage from "@/assets/hero-food.jpg";
 import ModifierSelector, { getModifiersTotal, getSelectedModifierNames, getSelectedModifierDetails } from "@/components/ModifierSelector";
+import { useOrders } from "@/context/OrderContext";
 
 type KioskStep = "welcome" | "order-type" | "categories" | "items" | "item-detail" | "cart";
 type OrderType = "dine-in" | "take-out";
@@ -33,6 +34,7 @@ interface CartItem {
 
 const KioskPage = () => {
   const navigate = useNavigate();
+  const { addOrder } = useOrders();
   const [step, setStep] = useState<KioskStep>("welcome");
   const [orderType, setOrderType] = useState<OrderType | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
@@ -79,9 +81,28 @@ const KioskPage = () => {
     setCart((prev) => prev.filter((_, i) => i !== index));
   };
 
+  const sendToKitchen = () => {
+    const items = cart.map((c) => ({
+      name: c.item.name + (c.item.modifiers ? ` (${getSelectedModifierNames(c.item.modifiers, c.selectedModifiers).join(", ")})` : ""),
+      quantity: c.qty,
+      price: c.item.price + c.modifiersTotal,
+    }));
+    addOrder({
+      customer_name: orderType === "dine-in" ? "Dine-In" : "Take-Out",
+      customer_email: "",
+      customer_phone: "Kiosk",
+      items,
+      total: totalPrice * 1.08,
+      source: "kiosk",
+      order_type: orderType || "dine-in",
+      notes: `Kiosk ${orderType} order`,
+    });
+  };
+
   const handleCheckout = async () => {
     if (cart.length === 0) return;
     setIsProcessing(true);
+    sendToKitchen();
     try {
       const items = cart.flatMap((c) => {
         const lineItems = [{ name: c.item.name, price: c.item.price, quantity: c.qty }];
@@ -468,6 +489,7 @@ const KioskPage = () => {
                   </button>
                   <button
                     onClick={() => {
+                      sendToKitchen();
                       toast.success("Order placed! Please pay at the counter.");
                       resetOrder();
                     }}

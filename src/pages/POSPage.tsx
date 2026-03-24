@@ -20,6 +20,7 @@ import { menuItems, categories, MenuItem } from "@/data/menu";
 import { createCheckoutSession } from "@/lib/stripe";
 import { toast } from "sonner";
 import ModifierSelector, { getModifiersTotal, getSelectedModifierNames, getSelectedModifierDetails } from "@/components/ModifierSelector";
+import { useOrders } from "@/context/OrderContext";
 
 type OrderType = "dine-in" | "take-out";
 
@@ -31,6 +32,7 @@ interface CartItem {
 }
 
 const POSPage = () => {
+  const { addOrder } = useOrders();
   const navigate = useNavigate();
   const [orderType, setOrderType] = useState<OrderType>("dine-in");
   const [selectedCategory, setSelectedCategory] = useState<string>(categories[0]);
@@ -76,6 +78,7 @@ const POSPage = () => {
   const handleCheckout = async () => {
     if (cart.length === 0) return;
     setIsProcessing(true);
+    sendToKitchen();
     try {
       const items = cart.flatMap((c) => {
         const lineItems = [{ name: c.item.name, price: c.item.price, quantity: c.qty }];
@@ -103,13 +106,30 @@ const POSPage = () => {
     }
   };
 
+  const sendToKitchen = () => {
+    const items = cart.map((c) => ({
+      name: c.item.name + (c.item.modifiers ? ` (${getSelectedModifierNames(c.item.modifiers, c.selectedModifiers).join(", ")})` : ""),
+      quantity: c.qty,
+      price: c.item.price + c.modifiersTotal,
+    }));
+    addOrder({
+      customer_name: orderType === "dine-in" ? "Dine-In" : "Take-Out",
+      customer_email: "",
+      customer_phone: `POS #${orderNumber}`,
+      items,
+      total: totalPrice * 1.08,
+      source: "pos",
+      order_type: orderType,
+      notes: `POS order #${orderNumber}`,
+    });
+  };
+
   const resetOrder = () => {
     setCart([]);
     setSelectedItem(null);
     setItemQty(1);
     setSelectedMods({});
     setSearchQuery("");
-    
   };
 
   const filteredItems = searchQuery.trim()
@@ -391,6 +411,7 @@ const POSPage = () => {
                 </button>
                 <button
                   onClick={() => {
+                    sendToKitchen();
                     toast.success(`Cash order #${orderNumber} confirmed — $${(totalPrice * 1.08).toFixed(2)}`);
                     setCart([]);
                     setSelectedItem(null);
