@@ -111,15 +111,15 @@ export const menuItems: MenuItem[] = [
   { id: "chicken-shawarma-wrap", name: "Chicken Shawarma Wrap", desc: "Marinated grilled chicken, garlic sauce, pickles, lettuce in pita", price: 10.99, category: "Gyros & Wraps", image: foodChickenShawarmaWrap, modifiers: [toppings, proteinAdd] },
 
   // Plates
-  { id: "kofta-plate", name: "Beef Kofta Plate", desc: "Seasoned beef kofta kebabs over rice with grilled vegetables and tahini", price: 14.99, category: "Plates", image: foodKofta, tag: "Chef's Pick" },
-  { id: "falafel-plate", name: "Falafel Plate", desc: "Six crispy falafels with tahini, pickles, salad, hummus, and warm pita", price: 11.99, category: "Plates", image: foodFalafelPlate },
-  { id: "chicken-shawarma-plate", name: "Chicken Shawarma Plate", desc: "Grilled chicken shawarma over seasoned rice with salad and garlic sauce", price: 13.99, category: "Plates", image: foodShawarmaBowl },
-  { id: "lamb-shawarma-plate", name: "Lamb Shawarma Plate", desc: "Tender lamb shawarma over rice with hummus, salad, and pita", price: 15.99, category: "Plates", image: foodLambShawarma, tag: "Popular" },
+  { id: "kofta-plate", name: "Beef Kofta Plate", desc: "Seasoned beef kofta kebabs over rice with grilled vegetables and tahini", price: 14.99, category: "Plates", image: foodKofta, tag: "Chef's Pick", modifiers: [toppings, sideUpgrade] },
+  { id: "falafel-plate", name: "Falafel Plate", desc: "Six crispy falafels with tahini, pickles, salad, hummus, and warm pita", price: 11.99, category: "Plates", image: foodFalafelPlate, modifiers: [toppings, sideUpgrade] },
+  { id: "chicken-shawarma-plate", name: "Chicken Shawarma Plate", desc: "Grilled chicken shawarma over seasoned rice with salad and garlic sauce", price: 13.99, category: "Plates", image: foodShawarmaBowl, modifiers: [toppings, sideUpgrade] },
+  { id: "lamb-shawarma-plate", name: "Lamb Shawarma Plate", desc: "Tender lamb shawarma over rice with hummus, salad, and pita", price: 15.99, category: "Plates", image: foodLambShawarma, tag: "Popular", modifiers: [toppings, sideUpgrade] },
 
   // Bowls
-  { id: "gyro-bowl", name: "Gyro Bowl", desc: "Gyro meat over seasoned rice, salad, tzatziki, pita on the side", price: 12.99, category: "Bowls", image: foodGyroBowl, tag: "Popular" },
-  { id: "chicken-bowl", name: "Chicken Shawarma Bowl", desc: "Marinated chicken, hummus, tabbouleh, pickles over rice", price: 12.99, category: "Bowls", image: foodShawarmaBowl },
-  { id: "falafel-bowl", name: "Falafel Bowl", desc: "Crispy falafel over rice with hummus, pickles, tahini, and fresh veggies", price: 11.99, category: "Bowls", image: foodFalafelPlate },
+  { id: "gyro-bowl", name: "Gyro Bowl", desc: "Gyro meat over seasoned rice, salad, tzatziki, pita on the side", price: 12.99, category: "Bowls", image: foodGyroBowl, tag: "Popular", modifiers: [toppings, proteinAdd] },
+  { id: "chicken-bowl", name: "Chicken Shawarma Bowl", desc: "Marinated chicken, hummus, tabbouleh, pickles over rice", price: 12.99, category: "Bowls", image: foodShawarmaBowl, modifiers: [toppings, proteinAdd] },
+  { id: "falafel-bowl", name: "Falafel Bowl", desc: "Crispy falafel over rice with hummus, pickles, tahini, and fresh veggies", price: 11.99, category: "Bowls", image: foodFalafelPlate, modifiers: [toppings] },
 
   // Salads
   { id: "gyro-salad", name: "Gyro Salad", desc: "Mixed greens, gyro meat, feta, olives, peppers, house vinaigrette", price: 11.99, category: "Salads", image: foodGyroSalad },
