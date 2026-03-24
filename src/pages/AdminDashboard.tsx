@@ -1,0 +1,94 @@
+import { useState } from "react";
+import { Link } from "react-router-dom";
+import { ArrowLeft, RefreshCw, Bell, LogOut } from "lucide-react";
+import { useAuth } from "@/context/AuthContext";
+import { mockOrders, Order, OrderStatus } from "@/data/orders";
+import StatsCards from "@/components/admin/StatsCards";
+import RevenueChart from "@/components/admin/RevenueChart";
+import OrderStatusChart from "@/components/admin/OrderStatusChart";
+import OrdersByHourChart from "@/components/admin/OrdersByHourChart";
+import CostAnalytics from "@/components/admin/CostAnalytics";
+import OrdersTable from "@/components/admin/OrdersTable";
+import { toast } from "sonner";
+
+const AdminDashboard = () => {
+  const { user, signOut } = useAuth();
+  const [orders, setOrders] = useState<Order[]>(mockOrders);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const handleStatusChange = (id: string, status: OrderStatus) => {
+    setOrders((prev) =>
+      prev.map((o) => (o.id === id ? { ...o, status } : o))
+    );
+    toast.success(`Order ${id} updated to ${status}`);
+  };
+
+  const handleRefresh = () => {
+    setRefreshing(true);
+    setTimeout(() => {
+      setRefreshing(false);
+      toast.success("Dashboard refreshed");
+    }, 800);
+  };
+
+  return (
+    <div className="min-h-screen bg-background">
+      {/* Top bar */}
+      <header className="sticky top-0 z-40 bg-background/90 backdrop-blur-sm border-b border-border">
+        <div className="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <Link
+              to="/"
+              className="w-8 h-8 flex items-center justify-center rounded-sm hover:bg-muted active:scale-95 transition-all"
+            >
+              <ArrowLeft className="w-4 h-4" />
+            </Link>
+            <h1 className="font-serif text-xl font-medium">Admin Dashboard</h1>
+          </div>
+          <div className="flex items-center gap-2">
+            <button className="relative w-9 h-9 flex items-center justify-center rounded-sm hover:bg-muted active:scale-95 transition-all">
+              <Bell className="w-4 h-4" />
+              <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-accent rounded-full" />
+            </button>
+            <button
+              onClick={handleRefresh}
+              className="flex items-center gap-2 px-3 py-2 bg-primary text-primary-foreground text-xs font-sans font-semibold uppercase tracking-wider rounded-sm hover:opacity-90 active:scale-[0.97] transition-all"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`} />
+              Refresh
+            </button>
+            <button
+              onClick={async () => await signOut()}
+              className="flex items-center gap-2 px-3 py-2 border border-border text-xs font-sans font-semibold uppercase tracking-wider rounded-sm text-muted-foreground hover:text-foreground hover:border-foreground/30 active:scale-[0.97] transition-all"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              Logout
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {/* Content */}
+      <main className="max-w-7xl mx-auto px-6 py-8 space-y-6 animate-fade-up opacity-0">
+        <StatsCards orders={orders} />
+
+        <div className="grid lg:grid-cols-5 gap-6">
+          <div className="lg:col-span-3">
+            <RevenueChart orders={orders} />
+          </div>
+          <div className="lg:col-span-2">
+            <OrderStatusChart orders={orders} />
+          </div>
+        </div>
+
+        <OrdersByHourChart orders={orders} />
+
+        <CostAnalytics orders={orders} />
+
+        <OrdersTable orders={orders} onStatusChange={handleStatusChange} />
+      </main>
+    </div>
+  );
+};
+
+export default AdminDashboard;
