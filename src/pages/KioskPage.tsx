@@ -13,6 +13,7 @@ import {
   Loader2,
   Search,
   HandMetal,
+  Banknote,
 } from "lucide-react";
 import { menuItems, categories, MenuItem } from "@/data/menu";
 import { createCheckoutSession } from "@/lib/stripe";
@@ -461,10 +462,22 @@ const KioskPage = () => {
                     <span className="font-sans font-bold text-lg text-accent">${(totalPrice * 1.08).toFixed(2)}</span>
                   </div>
                 </div>
-                <button onClick={handleCheckout} disabled={isProcessing} className="w-full py-4 bg-accent text-accent-foreground font-sans font-semibold text-base uppercase tracking-wider rounded-sm flex items-center justify-center gap-3 hover:opacity-90 active:scale-[0.97] transition-all shadow-lg shadow-accent/20 disabled:opacity-50 disabled:cursor-not-allowed">
-                  {isProcessing ? (<><Loader2 className="w-5 h-5 animate-spin" /> Processing…</>) : (<><CreditCard className="w-5 h-5" /> Tap to Pay — ${(totalPrice * 1.08).toFixed(2)}</>)}
-                </button>
-                <p className="text-center text-xs text-muted-foreground mt-3">Payments securely processed via Stripe</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <button onClick={handleCheckout} disabled={isProcessing} className="py-4 bg-accent text-accent-foreground font-sans font-semibold text-base uppercase tracking-wider rounded-sm flex items-center justify-center gap-3 hover:opacity-90 active:scale-[0.97] transition-all shadow-lg shadow-accent/20 disabled:opacity-50 disabled:cursor-not-allowed">
+                    {isProcessing ? (<><Loader2 className="w-5 h-5 animate-spin" /> Processing…</>) : (<><CreditCard className="w-5 h-5" /> Tap to Pay</>)}
+                  </button>
+                  <button
+                    onClick={() => {
+                      toast.success("Order placed! Please pay at the counter.");
+                      resetOrder();
+                    }}
+                    disabled={isProcessing}
+                    className="py-4 bg-primary text-primary-foreground font-sans font-semibold text-base uppercase tracking-wider rounded-sm flex items-center justify-center gap-3 hover:opacity-90 active:scale-[0.97] transition-all shadow-lg shadow-primary/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <Banknote className="w-5 h-5" /> Pay at Counter
+                  </button>
+                </div>
+                <p className="text-center text-xs text-muted-foreground mt-3">Total: ${(totalPrice * 1.08).toFixed(2)}</p>
               </>
             )}
           </div>

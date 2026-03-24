@@ -14,6 +14,7 @@ import {
   Search,
   Hash,
   RotateCcw,
+  Banknote,
 } from "lucide-react";
 import { menuItems, categories, MenuItem } from "@/data/menu";
 import { createCheckoutSession } from "@/lib/stripe";
@@ -376,17 +377,33 @@ const POSPage = () => {
                 <span className="font-sans font-bold text-sm">Total</span>
                 <span className="font-sans font-bold text-sm text-accent">${(totalPrice * 1.08).toFixed(2)}</span>
               </div>
-              <button
-                onClick={handleCheckout}
-                disabled={isProcessing}
-                className="w-full py-3 bg-accent text-accent-foreground font-sans font-semibold text-sm uppercase tracking-wider rounded-sm flex items-center justify-center gap-2 hover:opacity-90 active:scale-[0.97] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isProcessing ? (
-                  <><Loader2 className="w-4 h-4 animate-spin" /> Processing…</>
-                ) : (
-                  <><CreditCard className="w-4 h-4" /> Charge ${(totalPrice * 1.08).toFixed(2)}</>
-                )}
-              </button>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={handleCheckout}
+                  disabled={isProcessing}
+                  className="py-3 bg-accent text-accent-foreground font-sans font-semibold text-sm uppercase tracking-wider rounded-sm flex items-center justify-center gap-2 hover:opacity-90 active:scale-[0.97] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isProcessing ? (
+                    <><Loader2 className="w-4 h-4 animate-spin" /> Processing…</>
+                  ) : (
+                    <><CreditCard className="w-4 h-4" /> Tap to Pay</>
+                  )}
+                </button>
+                <button
+                  onClick={() => {
+                    toast.success(`Cash order #${orderNumber} confirmed — $${(totalPrice * 1.08).toFixed(2)}`);
+                    setCart([]);
+                    setSelectedItem(null);
+                    setItemQty(1);
+                    setSelectedMods({});
+                  }}
+                  disabled={isProcessing}
+                  className="py-3 bg-primary text-primary-foreground font-sans font-semibold text-sm uppercase tracking-wider rounded-sm flex items-center justify-center gap-2 hover:opacity-90 active:scale-[0.97] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Banknote className="w-4 h-4" /> Pay Cash
+                </button>
+              </div>
+              <p className="text-center text-[10px] text-muted-foreground mt-1">Total: ${(totalPrice * 1.08).toFixed(2)}</p>
             </div>
           )}
         </div>
