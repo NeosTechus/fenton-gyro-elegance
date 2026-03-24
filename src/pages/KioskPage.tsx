@@ -18,6 +18,7 @@ import { menuItems, categories, MenuItem } from "@/data/menu";
 import { createCheckoutSession } from "@/lib/stripe";
 import { toast } from "sonner";
 import heroImage from "@/assets/hero-food.jpg";
+import ModifierSelector, { getModifiersTotal, getSelectedModifierNames } from "@/components/ModifierSelector";
 
 type KioskStep = "welcome" | "order-type" | "categories" | "items" | "item-detail" | "cart";
 type OrderType = "dine-in" | "take-out";
@@ -25,6 +26,8 @@ type OrderType = "dine-in" | "take-out";
 interface CartItem {
   item: MenuItem;
   qty: number;
+  selectedModifiers: Record<string, string[]>;
+  modifiersTotal: number;
 }
 
 const KioskPage = () => {
@@ -37,9 +40,10 @@ const KioskPage = () => {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [selectedMods, setSelectedMods] = useState<Record<string, string[]>>({});
 
   const totalItems = cart.reduce((s, c) => s + c.qty, 0);
-  const totalPrice = cart.reduce((s, c) => s + c.item.price * c.qty, 0);
+  const totalPrice = cart.reduce((s, c) => s + (c.item.price + c.modifiersTotal) * c.qty, 0);
 
   const categoryImages: Record<string, string> = {};
   categories.forEach((cat) => {
@@ -47,40 +51,48 @@ const KioskPage = () => {
     if (first) categoryImages[cat] = first.image;
   });
 
-  const addToCart = (item: MenuItem, qty: number) => {
+  const addToCart = (item: MenuItem, qty: number, mods: Record<string, string[]>) => {
+    const modTotal = item.modifiers ? getModifiersTotal(item.modifiers, mods) : 0;
+    const modKey = JSON.stringify(mods);
     setCart((prev) => {
-      const existing = prev.find((c) => c.item.id === item.id);
+      const existing = prev.find((c) => c.item.id === item.id && JSON.stringify(c.selectedModifiers) === modKey);
       if (existing) {
         return prev.map((c) =>
-          c.item.id === item.id ? { ...c, qty: c.qty + qty } : c
+          c.item.id === item.id && JSON.stringify(c.selectedModifiers) === modKey
+            ? { ...c, qty: c.qty + qty }
+            : c
         );
       }
-      return [...prev, { item, qty }];
+      return [...prev, { item, qty, selectedModifiers: mods, modifiersTotal: modTotal }];
     });
     toast.success(`${qty}× ${item.name} added`);
   };
 
-  const updateCartQty = (id: string, delta: number) => {
+  const updateCartQty = (index: number, delta: number) => {
     setCart((prev) =>
-      prev
-        .map((c) => (c.item.id === id ? { ...c, qty: c.qty + delta } : c))
-        .filter((c) => c.qty > 0)
+      prev.map((c, i) => (i === index ? { ...c, qty: c.qty + delta } : c)).filter((c) => c.qty > 0)
     );
   };
 
-  const removeFromCart = (id: string) => {
-    setCart((prev) => prev.filter((c) => c.item.id !== id));
+  const removeFromCart = (index: number) => {
+    setCart((prev) => prev.filter((_, i) => i !== index));
   };
 
   const handleCheckout = async () => {
     if (cart.length === 0) return;
     setIsProcessing(true);
     try {
-      const items = cart.map((c) => ({
-        name: c.item.name,
-        price: c.item.price,
-        quantity: c.qty,
-      }));
+      const items = cart.flatMap((c) => {
+        const lineItems = [{ name: c.item.name, price: c.item.price, quantity: c.qty }];
+        if (c.item.modifiers) {
+          const modNames = getSelectedModifierNames(c.item.modifiers, c.selectedModifiers);
+          const modTotal = c.modifiersTotal;
+          if (modTotal > 0 && modNames.length > 0) {
+            lineItems.push({ name: `  ↳ ${modNames.join(", ")}`, price: modTotal, quantity: c.qty });
+          }
+        }
+        return lineItems;
+      });
       const checkoutUrl = await createCheckoutSession(items, "pickup", {
         name: orderType === "dine-in" ? "Dine-In Customer" : "Take-Out Customer",
         phone: "Kiosk Order",
@@ -104,24 +116,18 @@ const KioskPage = () => {
     setItemQty(1);
     setCart([]);
     setSearchQuery("");
+    setSelectedMods({});
   };
 
-  // Top bar for menu steps
   const TopBar = ({ backLabel, onBack }: { backLabel: string; onBack: () => void }) => (
     <header className="sticky top-0 z-40 bg-background/95 backdrop-blur-sm border-b border-border">
       <div className="flex items-center justify-between px-6 py-3">
-        <button
-          onClick={onBack}
-          className="flex items-center gap-2 text-sm font-sans font-semibold text-muted-foreground hover:text-foreground active:scale-95 transition-all"
-        >
+        <button onClick={onBack} className="flex items-center gap-2 text-sm font-sans font-semibold text-muted-foreground hover:text-foreground active:scale-95 transition-all">
           <ArrowLeft className="w-4 h-4" />
           {backLabel}
         </button>
         <p className="font-serif text-lg font-medium text-foreground">Fenton Gyro</p>
-        <button
-          onClick={() => setStep("cart")}
-          className="flex items-center gap-2 px-4 py-2 bg-accent text-accent-foreground font-sans font-semibold text-sm rounded-sm hover:opacity-90 active:scale-[0.97] transition-all"
-        >
+        <button onClick={() => setStep("cart")} className="flex items-center gap-2 px-4 py-2 bg-accent text-accent-foreground font-sans font-semibold text-sm rounded-sm hover:opacity-90 active:scale-[0.97] transition-all">
           <ShoppingBag className="w-4 h-4" />
           ${totalPrice.toFixed(2)}
           {totalItems > 0 && (
@@ -137,90 +143,44 @@ const KioskPage = () => {
   // ===== STEP 1: WELCOME SCREEN =====
   if (step === "welcome") {
     return (
-      <div
-        className="h-screen flex flex-col items-center justify-center relative overflow-hidden cursor-pointer select-none"
-        onClick={() => setStep("order-type")}
-      >
-        {/* Background image */}
-        <img
-          src={heroImage}
-          alt="Fenton Gyro"
-          className="absolute inset-0 w-full h-full object-cover"
-        />
+      <div className="h-screen flex flex-col items-center justify-center relative overflow-hidden cursor-pointer select-none" onClick={() => setStep("order-type")}>
+        <img src={heroImage} alt="Fenton Gyro" className="absolute inset-0 w-full h-full object-cover" />
         <div className="absolute inset-0 bg-primary/70" />
-
-        {/* Content */}
         <div className="relative z-10 flex flex-col items-center text-center px-8">
-          <p className="font-serif text-lg font-medium text-primary-foreground/80 mb-4 tracking-wider uppercase">
-            Fenton Gyro
-          </p>
+          <p className="font-serif text-lg font-medium text-primary-foreground/80 mb-4 tracking-wider uppercase">Fenton Gyro</p>
           <h1 className="font-serif text-5xl md:text-7xl lg:text-8xl font-bold text-primary-foreground leading-tight mb-8 animate-fade-up">
-            Order & Pay
-            <br />
-            Here
+            Order & Pay<br />Here
           </h1>
-          <p className="text-primary-foreground/70 font-sans text-lg md:text-xl animate-fade-up" style={{ animationDelay: "200ms" }}>
-            Touch screen to begin
-          </p>
+          <p className="text-primary-foreground/70 font-sans text-lg md:text-xl animate-fade-up" style={{ animationDelay: "200ms" }}>Touch screen to begin</p>
           <HandMetal className="w-10 h-10 text-primary-foreground/50 mt-8 animate-bounce" />
         </div>
       </div>
     );
   }
 
-  // ===== STEP 2: ORDER TYPE SELECTION =====
+  // ===== STEP 2: ORDER TYPE =====
   if (step === "order-type") {
     return (
       <div className="h-screen flex flex-col relative overflow-hidden">
-        {/* Background */}
-        <img
-          src={heroImage}
-          alt="Fenton Gyro"
-          className="absolute inset-0 w-full h-full object-cover"
-        />
+        <img src={heroImage} alt="Fenton Gyro" className="absolute inset-0 w-full h-full object-cover" />
         <div className="absolute inset-0 bg-primary/70" />
-
-        {/* Top bar */}
         <header className="relative z-10 flex items-center justify-between px-6 py-3 bg-background/90 backdrop-blur-sm border-b border-border">
-          <button
-            onClick={() => setStep("welcome")}
-            className="flex items-center gap-2 text-sm font-sans font-semibold text-muted-foreground hover:text-foreground active:scale-95 transition-all"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            Back
+          <button onClick={() => setStep("welcome")} className="flex items-center gap-2 text-sm font-sans font-semibold text-muted-foreground hover:text-foreground active:scale-95 transition-all">
+            <ArrowLeft className="w-4 h-4" /> Back
           </button>
           <p className="font-serif text-lg font-medium text-foreground">Fenton Gyro</p>
           <div className="flex items-center gap-2 px-4 py-2 text-muted-foreground font-sans font-semibold text-sm">
-            <ShoppingBag className="w-4 h-4" />
-            $0.00
+            <ShoppingBag className="w-4 h-4" /> $0.00
           </div>
         </header>
-
-        {/* Content */}
         <div className="relative z-10 flex-1 flex flex-col items-center justify-center px-8">
-          <h2 className="font-serif text-3xl md:text-5xl font-bold text-primary-foreground mb-12 text-center animate-fade-up">
-            Is this for here or to go?
-          </h2>
-
+          <h2 className="font-serif text-3xl md:text-5xl font-bold text-primary-foreground mb-12 text-center animate-fade-up">Is this for here or to go?</h2>
           <div className="flex gap-6 md:gap-10 animate-fade-up" style={{ animationDelay: "200ms" }}>
-            <button
-              onClick={() => {
-                setOrderType("dine-in");
-                setStep("categories");
-              }}
-              className="w-40 h-40 md:w-52 md:h-52 bg-background rounded-xl shadow-2xl flex flex-col items-center justify-center gap-4 hover:scale-105 active:scale-95 transition-all duration-200"
-            >
+            <button onClick={() => { setOrderType("dine-in"); setStep("categories"); }} className="w-40 h-40 md:w-52 md:h-52 bg-background rounded-xl shadow-2xl flex flex-col items-center justify-center gap-4 hover:scale-105 active:scale-95 transition-all duration-200">
               <UtensilsCrossed className="w-12 h-12 md:w-16 md:h-16 text-accent" />
               <span className="font-sans font-bold text-lg md:text-xl text-foreground">Eat In</span>
             </button>
-
-            <button
-              onClick={() => {
-                setOrderType("take-out");
-                setStep("categories");
-              }}
-              className="w-40 h-40 md:w-52 md:h-52 bg-background rounded-xl shadow-2xl flex flex-col items-center justify-center gap-4 hover:scale-105 active:scale-95 transition-all duration-200"
-            >
+            <button onClick={() => { setOrderType("take-out"); setStep("categories"); }} className="w-40 h-40 md:w-52 md:h-52 bg-background rounded-xl shadow-2xl flex flex-col items-center justify-center gap-4 hover:scale-105 active:scale-95 transition-all duration-200">
               <Package className="w-12 h-12 md:w-16 md:h-16 text-accent" />
               <span className="font-sans font-bold text-lg md:text-xl text-foreground">Take Out</span>
             </button>
@@ -230,13 +190,8 @@ const KioskPage = () => {
     );
   }
 
-  // Search results
   const searchResults = searchQuery.trim()
-    ? menuItems.filter(
-        (m) =>
-          m.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          m.category.toLowerCase().includes(searchQuery.toLowerCase())
-      )
+    ? menuItems.filter((m) => m.name.toLowerCase().includes(searchQuery.toLowerCase()) || m.category.toLowerCase().includes(searchQuery.toLowerCase()))
     : [];
 
   // ===== STEP 3: CATEGORIES =====
@@ -244,35 +199,21 @@ const KioskPage = () => {
     return (
       <div className="h-screen bg-background flex flex-col overflow-hidden">
         <TopBar backLabel="Dining Option" onBack={() => setStep("order-type")} />
-
-        {/* Search */}
         <div className="px-4 pt-3 pb-1 w-full shrink-0">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <input
-              type="text"
-              placeholder="Search menu items..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-10 py-2.5 bg-card border border-border rounded-sm font-sans text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-accent/50 transition-all"
-            />
+            <input type="text" placeholder="Search menu items..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-10 pr-10 py-2.5 bg-card border border-border rounded-sm font-sans text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-accent/50 transition-all" />
             {searchQuery && (
-              <button
-                onClick={() => setSearchQuery("")}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-              >
+              <button onClick={() => setSearchQuery("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
                 <X className="w-4 h-4" />
               </button>
             )}
           </div>
         </div>
-
         <main className="flex-1 p-4 overflow-hidden">
           {searchQuery.trim() ? (
             <div className="h-full flex flex-col">
-              <p className="text-xs uppercase tracking-wider font-sans font-semibold text-muted-foreground mb-2 shrink-0">
-                {searchResults.length} result{searchResults.length !== 1 ? "s" : ""}
-              </p>
+              <p className="text-xs uppercase tracking-wider font-sans font-semibold text-muted-foreground mb-2 shrink-0">{searchResults.length} result{searchResults.length !== 1 ? "s" : ""}</p>
               {searchResults.length === 0 ? (
                 <div className="flex-1 flex flex-col items-center justify-center">
                   <Search className="w-12 h-12 text-muted-foreground/20 mb-3" />
@@ -281,21 +222,9 @@ const KioskPage = () => {
               ) : (
                 <div className="flex-1 overflow-y-auto grid grid-cols-2 md:grid-cols-3 gap-3 auto-rows-min content-start">
                   {searchResults.map((item) => (
-                    <button
-                      key={item.id}
-                      onClick={() => {
-                        setSelectedItem(item);
-                        setSelectedCategory(item.category);
-                        setItemQty(1);
-                        setStep("item-detail");
-                        setSearchQuery("");
-                      }}
-                      className="bg-card border border-border rounded-sm p-3 flex items-center gap-3 text-left hover:shadow-md active:scale-[0.97] transition-all"
-                    >
+                    <button key={item.id} onClick={() => { setSelectedItem(item); setSelectedCategory(item.category); setItemQty(1); setSelectedMods({}); setStep("item-detail"); setSearchQuery(""); }} className="bg-card border border-border rounded-sm p-3 flex items-center gap-3 text-left hover:shadow-md active:scale-[0.97] transition-all">
                       <div className="flex-1 min-w-0">
-                        <p className="text-[9px] uppercase tracking-wider font-sans font-semibold text-muted-foreground mb-0.5">
-                          {item.category}
-                        </p>
+                        <p className="text-[9px] uppercase tracking-wider font-sans font-semibold text-muted-foreground mb-0.5">{item.category}</p>
                         <h3 className="font-serif text-sm font-medium text-foreground truncate">{item.name}</h3>
                         <p className="text-sm font-sans font-semibold text-accent">${item.price.toFixed(2)}</p>
                       </div>
@@ -308,24 +237,10 @@ const KioskPage = () => {
           ) : (
             <div className="h-full grid grid-cols-2 gap-3 auto-rows-fr">
               {categories.map((cat, i) => (
-                <button
-                  key={cat}
-                  onClick={() => {
-                    setSelectedCategory(cat);
-                    setStep("items");
-                  }}
-                  className="relative overflow-hidden rounded-sm group active:scale-[0.97] transition-all duration-200"
-                  style={{ animationDelay: `${i * 80}ms` }}
-                >
-                  <img
-                    src={categoryImages[cat]}
-                    alt={cat}
-                    className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                  />
+                <button key={cat} onClick={() => { setSelectedCategory(cat); setStep("items"); }} className="relative overflow-hidden rounded-sm group active:scale-[0.97] transition-all duration-200" style={{ animationDelay: `${i * 80}ms` }}>
+                  <img src={categoryImages[cat]} alt={cat} className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
                   <div className="absolute inset-0 bg-gradient-to-t from-foreground/70 via-foreground/20 to-transparent" />
-                  <span className="absolute inset-0 flex items-center justify-center font-serif text-xl md:text-2xl font-medium text-primary-foreground drop-shadow-lg">
-                    {cat}
-                  </span>
+                  <span className="absolute inset-0 flex items-center justify-center font-serif text-xl md:text-2xl font-medium text-primary-foreground drop-shadow-lg">{cat}</span>
                 </button>
               ))}
             </div>
@@ -344,23 +259,21 @@ const KioskPage = () => {
         <div className="relative h-32 md:h-40 overflow-hidden">
           <img src={categoryImages[selectedCategory]} alt={selectedCategory} className="absolute inset-0 w-full h-full object-cover" />
           <div className="absolute inset-0 bg-gradient-to-t from-foreground/70 via-foreground/30 to-transparent" />
-          <h2 className="absolute bottom-4 left-6 font-serif text-2xl md:text-3xl font-medium text-primary-foreground drop-shadow-lg">
-            {selectedCategory}
-          </h2>
+          <h2 className="absolute bottom-4 left-6 font-serif text-2xl md:text-3xl font-medium text-primary-foreground drop-shadow-lg">{selectedCategory}</h2>
         </div>
         <main className="flex-1 p-6">
           <div className="max-w-3xl mx-auto grid grid-cols-2 gap-4">
             {filteredItems.map((item, i) => (
-              <button
-                key={item.id}
-                onClick={() => { setSelectedItem(item); setItemQty(1); setStep("item-detail"); }}
-                className="bg-card border border-border rounded-sm p-4 flex items-center gap-4 text-left hover:shadow-md active:scale-[0.97] transition-all animate-fade-up opacity-0"
-                style={{ animationDelay: `${i * 80}ms` }}
-              >
+              <button key={item.id} onClick={() => { setSelectedItem(item); setItemQty(1); setSelectedMods({}); setStep("item-detail"); }} className="bg-card border border-border rounded-sm p-4 flex items-center gap-4 text-left hover:shadow-md active:scale-[0.97] transition-all animate-fade-up opacity-0" style={{ animationDelay: `${i * 80}ms` }}>
                 <div className="flex-1 min-w-0">
                   <h3 className="font-serif text-base font-medium text-foreground mb-1 truncate">{item.name}</h3>
                   <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">{item.desc}</p>
-                  <p className="text-sm font-sans font-semibold text-accent mt-2">${item.price.toFixed(2)}</p>
+                  <div className="flex items-center gap-2 mt-2">
+                    <p className="text-sm font-sans font-semibold text-accent">${item.price.toFixed(2)}</p>
+                    {item.modifiers && item.modifiers.length > 0 && (
+                      <span className="text-[9px] uppercase tracking-wider font-sans font-semibold text-muted-foreground bg-muted px-1.5 py-0.5 rounded">Customizable</span>
+                    )}
+                  </div>
                 </div>
                 <img src={item.image} alt={item.name} className="w-20 h-20 rounded-sm object-cover shrink-0" />
               </button>
@@ -373,7 +286,8 @@ const KioskPage = () => {
 
   // ===== STEP 5: ITEM DETAIL =====
   if (step === "item-detail" && selectedItem) {
-    const detailTotal = selectedItem.price * itemQty;
+    const modsTotal = selectedItem.modifiers ? getModifiersTotal(selectedItem.modifiers, selectedMods) : 0;
+    const detailTotal = (selectedItem.price + modsTotal) * itemQty;
     return (
       <div className="min-h-screen bg-background flex flex-col">
         <header className="sticky top-0 z-40 bg-background/95 backdrop-blur-sm border-b border-border">
@@ -391,6 +305,14 @@ const KioskPage = () => {
               <img src={selectedItem.image} alt={selectedItem.name} className="w-full aspect-square object-cover rounded-sm mb-6" />
               <h2 className="font-serif text-2xl font-medium mb-2">{selectedItem.name}</h2>
               <p className="text-muted-foreground leading-relaxed text-sm mb-6">{selectedItem.desc}</p>
+
+              {/* Modifiers */}
+              {selectedItem.modifiers && selectedItem.modifiers.length > 0 && (
+                <div className="mb-6 pb-6 border-b border-border">
+                  <ModifierSelector groups={selectedItem.modifiers} selected={selectedMods} onChange={setSelectedMods} />
+                </div>
+              )}
+
               <div className="flex items-center justify-between mb-6">
                 <span className="text-2xl font-sans font-bold text-accent">${detailTotal.toFixed(2)}</span>
                 <div className="flex items-center gap-3">
@@ -404,7 +326,7 @@ const KioskPage = () => {
                 </div>
               </div>
               <button
-                onClick={() => { addToCart(selectedItem, itemQty); setStep("items"); }}
+                onClick={() => { addToCart(selectedItem, itemQty, selectedMods); setStep("items"); setSelectedMods({}); }}
                 className="w-full py-4 bg-accent text-accent-foreground font-sans font-semibold text-sm uppercase tracking-wider rounded-sm flex items-center justify-center gap-2 hover:opacity-90 active:scale-[0.97] transition-all shadow-lg shadow-accent/20"
               >
                 <ShoppingBag className="w-4 h-4" />
@@ -428,10 +350,10 @@ const KioskPage = () => {
                 {cart.length > 0 && (
                   <div className="border-t border-border pt-3 mt-3">
                     <p className="text-xs uppercase tracking-wider font-sans font-semibold text-muted-foreground mb-2">In Your Cart</p>
-                    {cart.map((c) => (
-                      <div key={c.item.id} className="flex justify-between text-sm py-1">
+                    {cart.map((c, idx) => (
+                      <div key={idx} className="flex justify-between text-sm py-1">
                         <span>{c.qty}× {c.item.name}</span>
-                        <span className="font-semibold">${(c.item.price * c.qty).toFixed(2)}</span>
+                        <span className="font-semibold">${((c.item.price + c.modifiersTotal) * c.qty).toFixed(2)}</span>
                       </div>
                     ))}
                     <div className="border-t border-border mt-2 pt-2 flex justify-between font-sans font-semibold text-accent">
@@ -472,34 +394,39 @@ const KioskPage = () => {
               <div className="text-center py-20">
                 <ShoppingBag className="w-16 h-16 text-muted-foreground/20 mx-auto mb-4" />
                 <p className="text-muted-foreground font-sans">Your cart is empty</p>
-                <button onClick={() => setStep("categories")} className="mt-4 px-6 py-2.5 bg-accent text-accent-foreground font-sans font-semibold text-sm uppercase tracking-wider rounded-sm hover:opacity-90 active:scale-[0.97] transition-all">
-                  Browse Menu
-                </button>
+                <button onClick={() => setStep("categories")} className="mt-4 px-6 py-2.5 bg-accent text-accent-foreground font-sans font-semibold text-sm uppercase tracking-wider rounded-sm hover:opacity-90 active:scale-[0.97] transition-all">Browse Menu</button>
               </div>
             ) : (
               <>
                 <div className="space-y-3 mb-6">
-                  {cart.map((c) => (
-                    <div key={c.item.id} className="bg-card border border-border rounded-sm p-4 flex items-center gap-4">
-                      <img src={c.item.image} alt={c.item.name} className="w-16 h-16 rounded-sm object-cover shrink-0" />
-                      <div className="flex-1 min-w-0">
-                        <h3 className="font-serif text-sm font-medium truncate">{c.item.name}</h3>
-                        <p className="text-sm text-accent font-sans font-semibold">${(c.item.price * c.qty).toFixed(2)}</p>
-                      </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        <button onClick={() => updateCartQty(c.item.id, -1)} className="w-8 h-8 flex items-center justify-center rounded-sm border border-border text-muted-foreground hover:text-foreground active:scale-90 transition-all">
-                          <Minus className="w-3 h-3" />
+                  {cart.map((c, idx) => {
+                    const modNames = c.item.modifiers ? getSelectedModifierNames(c.item.modifiers, c.selectedModifiers) : [];
+                    const linePrice = (c.item.price + c.modifiersTotal) * c.qty;
+                    return (
+                      <div key={idx} className="bg-card border border-border rounded-sm p-4 flex items-center gap-4">
+                        <img src={c.item.image} alt={c.item.name} className="w-16 h-16 rounded-sm object-cover shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <h3 className="font-serif text-sm font-medium truncate">{c.item.name}</h3>
+                          {modNames.length > 0 && (
+                            <p className="text-[11px] text-muted-foreground truncate mt-0.5">{modNames.join(", ")}</p>
+                          )}
+                          <p className="text-sm text-accent font-sans font-semibold">${linePrice.toFixed(2)}</p>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button onClick={() => updateCartQty(idx, -1)} className="w-8 h-8 flex items-center justify-center rounded-sm border border-border text-muted-foreground hover:text-foreground active:scale-90 transition-all">
+                            <Minus className="w-3 h-3" />
+                          </button>
+                          <span className="w-6 text-center text-sm font-semibold">{c.qty}</span>
+                          <button onClick={() => updateCartQty(idx, 1)} className="w-8 h-8 flex items-center justify-center rounded-sm bg-accent text-accent-foreground hover:opacity-90 active:scale-90 transition-all">
+                            <Plus className="w-3 h-3" />
+                          </button>
+                        </div>
+                        <button onClick={() => removeFromCart(idx)} className="w-8 h-8 flex items-center justify-center text-muted-foreground hover:text-destructive active:scale-90 transition-all">
+                          <Trash2 className="w-4 h-4" />
                         </button>
-                        <span className="w-6 text-center text-sm font-semibold">{c.qty}</span>
-                        <button onClick={() => updateCartQty(c.item.id, 1)} className="w-8 h-8 flex items-center justify-center rounded-sm bg-accent text-accent-foreground hover:opacity-90 active:scale-90 transition-all">
-                          <Plus className="w-3 h-3" />
-                        </button>
                       </div>
-                      <button onClick={() => removeFromCart(c.item.id)} className="w-8 h-8 flex items-center justify-center text-muted-foreground hover:text-destructive active:scale-90 transition-all">
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
                 <div className="bg-card border border-border rounded-sm p-5 mb-6">
                   <div className="flex justify-between text-sm mb-2">
@@ -515,11 +442,7 @@ const KioskPage = () => {
                     <span className="font-sans font-bold text-lg text-accent">${(totalPrice * 1.08).toFixed(2)}</span>
                   </div>
                 </div>
-                <button
-                  onClick={handleCheckout}
-                  disabled={isProcessing}
-                  className="w-full py-4 bg-accent text-accent-foreground font-sans font-semibold text-base uppercase tracking-wider rounded-sm flex items-center justify-center gap-3 hover:opacity-90 active:scale-[0.97] transition-all shadow-lg shadow-accent/20 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
+                <button onClick={handleCheckout} disabled={isProcessing} className="w-full py-4 bg-accent text-accent-foreground font-sans font-semibold text-base uppercase tracking-wider rounded-sm flex items-center justify-center gap-3 hover:opacity-90 active:scale-[0.97] transition-all shadow-lg shadow-accent/20 disabled:opacity-50 disabled:cursor-not-allowed">
                   {isProcessing ? (<><Loader2 className="w-5 h-5 animate-spin" /> Processing…</>) : (<><CreditCard className="w-5 h-5" /> Tap to Pay — ${(totalPrice * 1.08).toFixed(2)}</>)}
                 </button>
                 <p className="text-center text-xs text-muted-foreground mt-3">Payments securely processed via Stripe</p>
