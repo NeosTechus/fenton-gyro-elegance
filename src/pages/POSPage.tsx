@@ -252,9 +252,9 @@ const POSPage = () => {
             )}
           </div>
 
-          {/* Items grid — compact for staff speed */}
+          {/* Items grid — large touch targets */}
           <div className="flex-1 overflow-y-auto p-3">
-            <div className="grid grid-cols-3 lg:grid-cols-4 gap-2">
+            <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
               {filteredItems.map((item) => (
                 <button
                   key={item.id}
@@ -273,13 +273,13 @@ const POSPage = () => {
                     setItemQty(1);
                     setSelectedMods({});
                   }}
-                  className="bg-background border border-border rounded-sm p-2 text-left hover:border-accent/50 hover:shadow-sm active:scale-[0.97] transition-all group relative"
+                  className="bg-background border-2 border-border rounded-md p-3 text-left hover:border-accent/50 hover:shadow-md active:scale-[0.96] transition-all group relative"
                 >
-                  <img src={item.image} alt={item.name} className="w-full aspect-square object-cover rounded-sm mb-1.5" />
-                  <h3 className="font-sans text-[11px] font-semibold text-foreground leading-tight truncate">{item.name}</h3>
-                  <p className="text-[11px] font-sans font-bold text-accent">${item.price.toFixed(2)}</p>
+                  <img src={item.image} alt={item.name} className="w-full aspect-[4/3] object-cover rounded-sm mb-2" />
+                  <h3 className="font-sans text-sm font-bold text-foreground leading-snug truncate">{item.name}</h3>
+                  <p className="text-sm font-sans font-bold text-accent mt-0.5">${item.price.toFixed(2)}</p>
                   {item.modifiers && item.modifiers.length > 0 && (
-                    <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-accent" title="Has customizations" />
+                    <span className="absolute top-2 right-2 w-3 h-3 rounded-full bg-accent" title="Has customizations" />
                   )}
                 </button>
               ))}
