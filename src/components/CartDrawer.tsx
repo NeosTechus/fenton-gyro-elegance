@@ -8,7 +8,7 @@ type OrderType = "pickup" | "delivery";
 
 const CartDrawer = ({ open, onClose }: { open: boolean; onClose: () => void }) => {
   const { cartItems, totalItems, totalPrice, addItem, removeItem, clearCart } = useCart();
-  const [orderType, setOrderType] = useState<OrderType>("pickup");
+  const orderType = "pickup";
   const [formData, setFormData] = useState({ name: "", phone: "", email: "", address: "", notes: "" });
   const [isProcessing, setIsProcessing] = useState(false);
 
