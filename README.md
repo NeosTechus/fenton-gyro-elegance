@@ -1,3 +1,3 @@
-# Fenton Gyro
+# Welcome to your Lovable project
 
-Mediterranean restaurant website built with React, TypeScript, Vite, and Tailwind CSS.
+TODO: Document your project here
