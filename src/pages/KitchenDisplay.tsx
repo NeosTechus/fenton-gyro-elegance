@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Link } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { Link, Navigate } from "react-router-dom";
 import {
   ArrowLeft,
   Bell,
@@ -14,7 +14,8 @@ import {
   LogOut,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
-import { mockOrders, Order, OrderStatus } from "@/data/orders";
+import { Order, OrderStatus } from "@/data/orders";
+import { subscribeToOrders, updateOrderStatus } from "@/lib/orders";
 import { toast } from "sonner";
 
 const STATUS_BADGE: Record<OrderStatus, { bg: string; text: string; label: string }> = {
@@ -134,37 +135,56 @@ const OrderCard = ({ order, onStatusChange, actionLabel, actionStatus }: OrderCa
 );
 
 const KitchenDisplay = () => {
-  const { role, signOut } = useAuth();
-  const [orders, setOrders] = useState<Order[]>(mockOrders);
+  const { user, role, loading, signOut } = useAuth();
+  const [orders, setOrders] = useState<Order[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [showCompleted, setShowCompleted] = useState(false);
   const [showRejected, setShowRejected] = useState(false);
   const [takingOrders, setTakingOrders] = useState(true);
 
-  if (role !== "chef" && role !== "admin") {
+  // Real-time Firestore listener
+  useEffect(() => {
+    const unsubscribe = subscribeToOrders((liveOrders) => {
+      setOrders(liveOrders);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  if (loading) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-background text-center p-8">
-        <h1 className="font-serif text-2xl font-medium mb-2">Access Denied</h1>
-        <p className="text-muted-foreground mb-4">Only chef accounts can access this page.</p>
-        <Link to="/auth" className="text-accent hover:underline text-sm font-sans font-semibold">Sign in as Chef</Link>
+      <div className="h-screen flex items-center justify-center bg-background">
+        <RefreshCw className="w-8 h-8 animate-spin text-accent" />
       </div>
     );
   }
 
-  const handleStatusChange = (id: string, status: OrderStatus) => {
+  if (!user || (role !== "chef" && role !== "admin")) {
+    return <Navigate to="/auth?redirect=/kitchen" replace />;
+  }
+
+  const handleStatusChange = async (id: string, status: OrderStatus) => {
+    // Optimistic update
     setOrders((prev) => prev.map((o) => (o.id === id ? { ...o, status } : o)));
-    toast.success(`Order #${id.slice(0, 6).toUpperCase()} → ${status}`);
+    try {
+      await updateOrderStatus(id, status);
+      toast.success(`Order #${id.slice(0, 6).toUpperCase()} → ${status}`);
+    } catch (err) {
+      toast.error("Failed to update order status");
+    }
   };
 
   const handleRefresh = () => {
     setRefreshing(true);
+    // Firestore listener auto-refreshes, just visual feedback
     setTimeout(() => { setRefreshing(false); toast.success("Refreshed"); }, 600);
   };
 
-  const handleAcceptAll = () => {
+  const handleAcceptAll = async () => {
+    const pending = orders.filter((o) => o.status === "pending");
     setOrders((prev) =>
       prev.map((o) => (o.status === "pending" ? { ...o, status: "received" } : o))
     );
+    await Promise.all(pending.map((o) => updateOrderStatus(o.id, "received")));
     toast.success("All pending orders accepted");
   };
 

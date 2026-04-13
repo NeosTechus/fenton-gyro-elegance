@@ -2,7 +2,8 @@ import { useState } from "react";
 import { X, Minus, Plus, Loader2, ShoppingBag } from "lucide-react";
 import { toast } from "sonner";
 import { useCart } from "@/context/CartContext";
-import { createCheckoutSession } from "@/lib/stripe";
+import { createValorCheckout } from "@/lib/valor-ecomm";
+import { createOrder } from "@/lib/orders";
 
 
 
@@ -30,7 +31,26 @@ const CartDrawer = ({ open, onClose }: { open: boolean; onClose: () => void }) =
         price: item.price,
         quantity: qty,
       }));
-      const checkoutUrl = await createCheckoutSession(items, orderType, formData);
+      await createOrder({
+        customer_name: formData.name,
+        customer_email: formData.email,
+        customer_phone: formData.phone,
+        items: items.map(({ name, price, quantity }) => ({ name, price, quantity })),
+        total: totalPrice,
+        order_type: orderType,
+        notes: formData.notes,
+        source: "web",
+        payment: "card",
+      });
+
+      const checkoutUrl = await createValorCheckout({
+        amount: totalPrice.toFixed(2),
+        phone: formData.phone,
+        email: formData.email,
+        customerName: formData.name,
+        invoiceNumber: `CART-${Date.now()}`,
+        productDescription: items.map((i) => `${i.quantity}x ${i.name}`).join(", "),
+      });
       window.location.href = checkoutUrl;
     } catch (error) {
       console.error("Checkout error:", error);

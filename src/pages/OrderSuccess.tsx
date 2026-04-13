@@ -5,7 +5,7 @@ import { Link, useSearchParams } from "react-router-dom";
 const OrderSuccess = () => {
   const ref = useRef<HTMLDivElement>(null);
   const [searchParams] = useSearchParams();
-  const sessionId = searchParams.get("session_id");
+  const orderId = searchParams.get("orderId") || searchParams.get("session_id");
 
   useEffect(() => {
     ref.current?.classList.add("animate-fade-up");
@@ -26,9 +26,9 @@ const OrderSuccess = () => {
         <p className="text-muted-foreground text-sm mb-8 opacity-0 animate-fade-up" style={{ animationDelay: "750ms" }}>
           We'll call you shortly to confirm the details.
         </p>
-        {sessionId && (
+        {orderId && (
           <p className="text-xs text-muted-foreground/60 mb-6 font-mono opacity-0 animate-fade-up" style={{ animationDelay: "850ms" }}>
-            Ref: {sessionId.slice(-8).toUpperCase()}
+            Order: {orderId.slice(-8).toUpperCase()}
           </p>
         )}
         <Link

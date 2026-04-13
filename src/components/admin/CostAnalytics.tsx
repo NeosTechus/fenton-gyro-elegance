@@ -6,13 +6,13 @@ interface CostAnalyticsProps {
 
 const CostAnalytics = ({ orders }: CostAnalyticsProps) => {
   const totalRevenue = orders.reduce((s, o) => s + o.total, 0);
-  const stripeFees = totalRevenue * 0.029 + orders.length * 0.3;
-  const netRevenue = totalRevenue - stripeFees;
+  const processingFees = totalRevenue * 0.029 + orders.length * 0.3;
+  const netRevenue = totalRevenue - processingFees;
   const margin = totalRevenue > 0 ? (netRevenue / totalRevenue) * 100 : 0;
   const monthlyProjection = totalRevenue * 4.3; // rough weekly to monthly
 
   const costs = [
-    { label: "Stripe Fees", value: `$${stripeFees.toFixed(2)}`, sub: `2.9% + $0.30/txn`, dot: "bg-accent" },
+    { label: "Processing Fees", value: `$${processingFees.toFixed(2)}`, sub: `2.9% + $0.30/txn`, dot: "bg-accent" },
     { label: "Hosting", value: "$0.00", sub: "Free tier", dot: "bg-muted-foreground" },
     { label: "Database", value: "$0.00", sub: "Free tier", dot: "bg-primary" },
     { label: "Emails", value: "$0.00", sub: `${orders.length} sent`, dot: "bg-gold" },
@@ -69,8 +69,8 @@ const CostAnalytics = ({ orders }: CostAnalyticsProps) => {
       <div className="grid grid-cols-3 gap-3">
         <div className="bg-accent/10 border border-accent/20 rounded-sm p-4 text-center">
           <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Total Operational Cost</p>
-          <p className="text-xl font-sans font-bold text-accent">${stripeFees.toFixed(2)}</p>
-          <p className="text-[10px] text-muted-foreground">${(stripeFees / Math.max(orders.length, 1)).toFixed(2)}/order</p>
+          <p className="text-xl font-sans font-bold text-accent">${processingFees.toFixed(2)}</p>
+          <p className="text-[10px] text-muted-foreground">${(processingFees / Math.max(orders.length, 1)).toFixed(2)}/order</p>
         </div>
         <div className="bg-primary/10 border border-primary/20 rounded-sm p-4 text-center">
           <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Net Revenue</p>

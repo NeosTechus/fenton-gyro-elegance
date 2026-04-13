@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Navigate } from "react-router-dom";
 import {
   ArrowLeft,
   ShoppingBag,
@@ -16,10 +16,13 @@ import {
   Banknote,
 } from "lucide-react";
 import { menuItems, categories, MenuItem } from "@/data/menu";
-import { createCheckoutSession } from "@/lib/stripe";
 import { toast } from "sonner";
+import { sendCreditSale, dollarsToCents } from "@/lib/valor";
+import { ValorEPI, getEPIs } from "@/lib/valor-epi";
+import { createOrder } from "@/lib/orders";
 import heroImage from "@/assets/hero-food.jpg";
 import ModifierSelector, { getModifiersTotal, getSelectedModifierNames, getSelectedModifierDetails } from "@/components/ModifierSelector";
+import { useAuth } from "@/context/AuthContext";
 
 type KioskStep = "welcome" | "order-type" | "categories" | "items" | "item-detail" | "cart";
 type OrderType = "dine-in" | "take-out";
@@ -33,6 +36,7 @@ interface CartItem {
 
 const KioskPage = () => {
   const navigate = useNavigate();
+  const { signOut } = useAuth();
   const [step, setStep] = useState<KioskStep>("welcome");
   const [orderType, setOrderType] = useState<OrderType | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
@@ -42,6 +46,8 @@ const KioskPage = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedMods, setSelectedMods] = useState<Record<string, string[]>>({});
+  const [epis] = useState<ValorEPI[]>(() => getEPIs());
+  const [selectedEpi, setSelectedEpi] = useState<string>(epis[0]?.wsUrl || "");
 
   const totalItems = cart.reduce((s, c) => s + c.qty, 0);
   const totalPrice = cart.reduce((s, c) => s + (c.item.price + c.modifiersTotal) * c.qty, 0);
@@ -79,29 +85,56 @@ const KioskPage = () => {
     setCart((prev) => prev.filter((_, i) => i !== index));
   };
 
+  const buildOrderItems = () =>
+    cart.map((c) => ({
+      name: c.item.name,
+      quantity: c.qty,
+      price: c.item.price + c.modifiersTotal,
+    }));
+
+  const saveKioskOrder = async (payment: "card" | "cash", extra?: { auth_code?: string; masked_pan?: string; rrn?: string }) => {
+    await createOrder({
+      customer_name: orderType === "dine-in" ? "Dine-In Customer" : "Take-Out Customer",
+      customer_email: "",
+      customer_phone: "Kiosk Order",
+      items: buildOrderItems(),
+      total: totalPrice * 1.08,
+      order_type: orderType || "dine-in",
+      notes: `Kiosk ${orderType} order`,
+      source: "kiosk",
+      payment,
+      terminal_epi: selectedEpi || undefined,
+      ...extra,
+    });
+  };
+
   const handleCheckout = async () => {
     if (cart.length === 0) return;
     setIsProcessing(true);
     try {
-      const items = cart.flatMap((c) => {
-        const lineItems = [{ name: c.item.name, price: c.item.price, quantity: c.qty }];
-        if (c.item.modifiers) {
-          const modNames = getSelectedModifierNames(c.item.modifiers, c.selectedModifiers);
-          const modTotal = c.modifiersTotal;
-          if (modTotal > 0 && modNames.length > 0) {
-            lineItems.push({ name: `  ↳ ${modNames.join(", ")}`, price: modTotal, quantity: c.qty });
-          }
-        }
-        return lineItems;
+      const totalWithTax = totalPrice * 1.08;
+      const lineItems = cart.map((c) => ({
+        product_code: c.item.name,
+        quantity: c.qty.toString(),
+        total: ((c.item.price + c.modifiersTotal) * c.qty).toFixed(2),
+      }));
+
+      const result = await sendCreditSale({
+        amountCents: dollarsToCents(totalWithTax),
+        tipEnabled: false,
+        printReceipt: true,
+        lineItems,
+        wsUrl: selectedEpi || undefined,
       });
-      const checkoutUrl = await createCheckoutSession(items, "pickup", {
-        name: orderType === "dine-in" ? "Dine-In Customer" : "Take-Out Customer",
-        phone: "Kiosk Order",
-        email: "",
-        address: "",
-        notes: `Kiosk ${orderType} order`,
+
+      await saveKioskOrder("card", {
+        auth_code: result.CODE,
+        masked_pan: result.MASKED_PAN,
+        rrn: result.RRN,
       });
-      window.location.href = checkoutUrl;
+
+      toast.success("Payment approved! Thank you.");
+      resetOrder();
     } catch (error) {
       console.error("Kiosk checkout error:", error);
       toast.error(error instanceof Error ? error.message : "Payment failed");
@@ -155,6 +188,30 @@ const KioskPage = () => {
           <p className="text-primary-foreground/70 font-sans text-lg md:text-xl animate-fade-up" style={{ animationDelay: "200ms" }}>Touch screen to begin</p>
           <HandMetal className="w-10 h-10 text-primary-foreground/50 mt-8 animate-bounce" />
         </div>
+        {/* Staff controls — bottom corners */}
+        <div className="absolute bottom-4 left-4 z-20" onClick={(e) => e.stopPropagation()}>
+          <button
+            onClick={async () => { await signOut(); navigate("/auth?redirect=/kiosk"); }}
+            className="bg-primary-foreground/10 text-primary-foreground/60 text-xs font-sans px-3 py-1.5 rounded-sm border border-primary-foreground/20 hover:text-primary-foreground/80"
+          >
+            Sign Out
+          </button>
+        </div>
+        {epis.length > 1 && (
+          <div className="absolute bottom-4 right-4 z-20" onClick={(e) => e.stopPropagation()}>
+            <select
+              value={selectedEpi}
+              onChange={(e) => setSelectedEpi(e.target.value)}
+              className="bg-primary-foreground/10 text-primary-foreground/60 text-xs font-sans px-2 py-1.5 rounded-sm border border-primary-foreground/20 focus:outline-none"
+            >
+              {epis.map((epi) => (
+                <option key={epi.id} value={epi.wsUrl} className="text-foreground bg-background">
+                  {epi.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
       </div>
     );
   }
@@ -467,7 +524,8 @@ const KioskPage = () => {
                     {isProcessing ? (<><Loader2 className="w-5 h-5 animate-spin" /> Processing…</>) : (<><CreditCard className="w-5 h-5" /> Tap to Pay</>)}
                   </button>
                   <button
-                    onClick={() => {
+                    onClick={async () => {
+                      await saveKioskOrder("cash");
                       toast.success("Order placed! Please pay at the counter.");
                       resetOrder();
                     }}
@@ -489,4 +547,22 @@ const KioskPage = () => {
   return null;
 };
 
-export default KioskPage;
+const KioskPageWithAuth = () => {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-background">
+        <Loader2 className="w-8 h-8 animate-spin text-accent" />
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <Navigate to="/auth?redirect=/kiosk" replace />;
+  }
+
+  return <KioskPage />;
+};
+
+export default KioskPageWithAuth;

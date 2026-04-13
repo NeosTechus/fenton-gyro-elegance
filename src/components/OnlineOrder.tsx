@@ -2,7 +2,8 @@ import { useState } from "react";
 import { useEffect, useRef } from "react";
 import { Check, Minus, Plus, ShoppingBag, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { createCheckoutSession } from "@/lib/stripe";
+import { createValorCheckout } from "@/lib/valor-ecomm";
+import { createOrder } from "@/lib/orders";
 
 interface MenuItem {
   id: string;
@@ -88,7 +89,27 @@ const OnlineOrder = () => {
         return { name: item.name, price: item.price, quantity: qty };
       });
 
-      const checkoutUrl = await createCheckoutSession(items, orderType, formData);
+      // Save order to Firestore first
+      await createOrder({
+        customer_name: formData.name,
+        customer_email: formData.email,
+        customer_phone: formData.phone,
+        items,
+        total: totalPrice,
+        order_type: orderType,
+        notes: formData.notes,
+        source: "web",
+        payment: "card",
+      });
+
+      const checkoutUrl = await createValorCheckout({
+        amount: totalPrice.toFixed(2),
+        phone: formData.phone,
+        email: formData.email,
+        customerName: formData.name,
+        invoiceNumber: `WEB-${Date.now()}`,
+        productDescription: items.map((i) => `${i.quantity}x ${i.name}`).join(", "),
+      });
       window.location.href = checkoutUrl;
     } catch (error) {
       console.error("Checkout error:", error);

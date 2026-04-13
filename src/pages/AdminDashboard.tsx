@@ -1,8 +1,9 @@
-import { useState } from "react";
-import { Link } from "react-router-dom";
-import { ArrowLeft, RefreshCw, Bell, LogOut, ChefHat } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Link, Navigate } from "react-router-dom";
+import { ArrowLeft, RefreshCw, Bell, LogOut, ChefHat, Settings } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
-import { mockOrders, Order, OrderStatus } from "@/data/orders";
+import { Order, OrderStatus } from "@/data/orders";
+import { subscribeToOrders, updateOrderStatus } from "@/lib/orders";
 import StatsCards from "@/components/admin/StatsCards";
 import RevenueChart from "@/components/admin/RevenueChart";
 import OrderStatusChart from "@/components/admin/OrderStatusChart";
@@ -12,25 +13,40 @@ import OrdersTable from "@/components/admin/OrdersTable";
 import { toast } from "sonner";
 
 const AdminDashboard = () => {
-  const { user, role, signOut } = useAuth();
-  const [orders, setOrders] = useState<Order[]>(mockOrders);
+  const { user, role, loading, signOut } = useAuth();
+  const [orders, setOrders] = useState<Order[]>([]);
   const [refreshing, setRefreshing] = useState(false);
 
-  if (role !== "admin") {
+  // Real-time Firestore listener
+  useEffect(() => {
+    const unsubscribe = subscribeToOrders((liveOrders) => {
+      setOrders(liveOrders);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  if (loading) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-background text-center p-8">
-        <h1 className="font-serif text-2xl font-medium mb-2">Access Denied</h1>
-        <p className="text-muted-foreground mb-4">Only admin accounts can access this page.</p>
-        <Link to="/auth" className="text-accent hover:underline text-sm font-sans font-semibold">Sign in as Admin</Link>
+      <div className="h-screen flex items-center justify-center bg-background">
+        <RefreshCw className="w-8 h-8 animate-spin text-accent" />
       </div>
     );
   }
 
-  const handleStatusChange = (id: string, status: OrderStatus) => {
+  if (!user || role !== "admin") {
+    return <Navigate to="/auth?redirect=/admin" replace />;
+  }
+
+  const handleStatusChange = async (id: string, status: OrderStatus) => {
     setOrders((prev) =>
       prev.map((o) => (o.id === id ? { ...o, status } : o))
     );
-    toast.success(`Order ${id} updated to ${status}`);
+    try {
+      await updateOrderStatus(id, status);
+      toast.success(`Order ${id.slice(0, 6)} updated to ${status}`);
+    } catch {
+      toast.error("Failed to update order status");
+    }
   };
 
   const handleRefresh = () => {
@@ -62,6 +78,13 @@ const AdminDashboard = () => {
             >
               <ChefHat className="w-3.5 h-3.5" />
               Kitchen
+            </Link>
+            <Link
+              to="/settings"
+              className="flex items-center gap-2 px-3 py-2 border border-border text-xs font-sans font-semibold uppercase tracking-wider rounded-sm text-muted-foreground hover:text-foreground hover:border-foreground/30 active:scale-[0.97] transition-all"
+            >
+              <Settings className="w-3.5 h-3.5" />
+              Settings
             </Link>
             <button className="relative w-9 h-9 flex items-center justify-center rounded-sm hover:bg-muted active:scale-95 transition-all">
               <Bell className="w-4 h-4" />

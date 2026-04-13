@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate, Link, useSearchParams } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { getRoleForEmail } from "@/lib/roles";
 import { toast } from "sonner";
@@ -16,6 +16,20 @@ const AuthPage = () => {
   const [loading, setLoading] = useState(false);
   const { signIn, signUp, signInWithGoogle } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const redirectTo = searchParams.get("redirect");
+
+  const getPostLoginRoute = (email: string) => {
+    if (redirectTo) return redirectTo;
+    // Direct email-based routing for staff devices
+    const lower = email.toLowerCase();
+    if (lower === "kiosk@fentongyro.com") return "/kiosk";
+    if (lower === "pos@fentongyro.com") return "/pos";
+    const role = getRoleForEmail(email);
+    if (role === "admin") return "/admin";
+    if (role === "chef") return "/kitchen";
+    return "/";
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -24,13 +38,11 @@ const AuthPage = () => {
       if (mode === "signin") {
         await signIn(email, password);
         toast.success("Welcome back!");
-        const role = getRoleForEmail(email);
-        if (role === "admin") navigate("/admin");
-        else if (role === "chef") navigate("/kitchen");
-        else navigate("/");
+        navigate(getPostLoginRoute(email));
       } else {
         await signUp(email, password, displayName);
         toast.success("Account created! Check your email to verify.");
+        if (redirectTo) navigate(redirectTo);
       }
     } catch (error: any) {
       toast.error(error.message || "Something went wrong");
@@ -42,6 +54,7 @@ const AuthPage = () => {
   const handleGoogleSignIn = async () => {
     try {
       await signInWithGoogle();
+      if (redirectTo) navigate(redirectTo);
     } catch (error: any) {
       toast.error(error.message || "Google sign-in failed");
     }

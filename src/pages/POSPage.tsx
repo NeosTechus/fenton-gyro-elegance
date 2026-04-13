@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Navigate } from "react-router-dom";
 import {
   ArrowLeft,
   ShoppingBag,
@@ -17,9 +17,13 @@ import {
   Banknote,
 } from "lucide-react";
 import { menuItems, categories, MenuItem } from "@/data/menu";
-import { createCheckoutSession } from "@/lib/stripe";
 import { toast } from "sonner";
 import ModifierSelector, { getModifiersTotal, getSelectedModifierNames, getSelectedModifierDetails } from "@/components/ModifierSelector";
+import { useAuth } from "@/context/AuthContext";
+import { LogOut } from "lucide-react";
+import { sendCreditSale, dollarsToCents } from "@/lib/valor";
+import { ValorEPI, getEPIs } from "@/lib/valor-epi";
+import { createOrder } from "@/lib/orders";
 
 type OrderType = "dine-in" | "take-out";
 
@@ -32,6 +36,7 @@ interface CartItem {
 
 const POSPage = () => {
   const navigate = useNavigate();
+  const { signOut } = useAuth();
   const [orderType, setOrderType] = useState<OrderType>("dine-in");
   const [selectedCategory, setSelectedCategory] = useState<string>(categories[0]);
   const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null);
@@ -41,6 +46,8 @@ const POSPage = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedMods, setSelectedMods] = useState<Record<string, string[]>>({});
   const [orderNumber] = useState(() => Math.floor(100 + Math.random() * 900));
+  const [epis] = useState<ValorEPI[]>(() => getEPIs());
+  const [selectedEpi, setSelectedEpi] = useState<string>(epis[0]?.wsUrl || "");
 
   const totalItems = cart.reduce((s, c) => s + c.qty, 0);
   const totalPrice = cart.reduce((s, c) => s + (c.item.price + c.modifiersTotal) * c.qty, 0);
@@ -73,32 +80,63 @@ const POSPage = () => {
     setCart((prev) => prev.filter((_, i) => i !== index));
   };
 
+  const buildOrderItems = () =>
+    cart.map((c) => ({
+      name: c.item.name,
+      quantity: c.qty,
+      price: c.item.price + c.modifiersTotal,
+    }));
+
+  const saveOrder = async (payment: "card" | "cash", extra?: { auth_code?: string; masked_pan?: string; rrn?: string }) => {
+    await createOrder({
+      customer_name: orderType === "dine-in" ? "Dine-In Customer" : "Take-Out Customer",
+      customer_email: "",
+      customer_phone: "",
+      items: buildOrderItems(),
+      total: totalPrice * 1.08,
+      order_type: orderType,
+      notes: `POS Order #${orderNumber}`,
+      source: "pos",
+      payment,
+      terminal_epi: selectedEpi || undefined,
+      ...extra,
+    });
+  };
+
   const handleCheckout = async () => {
     if (cart.length === 0) return;
     setIsProcessing(true);
     try {
-      const items = cart.flatMap((c) => {
-        const lineItems = [{ name: c.item.name, price: c.item.price, quantity: c.qty }];
-        if (c.item.modifiers) {
-          const modNames = getSelectedModifierNames(c.item.modifiers, c.selectedModifiers);
-          const modTotal = c.modifiersTotal;
-          if (modTotal > 0 && modNames.length > 0) {
-            lineItems.push({ name: `  ↳ ${modNames.join(", ")}`, price: modTotal, quantity: c.qty });
-          }
-        }
-        return lineItems;
+      const totalWithTax = totalPrice * 1.08;
+      const lineItems = cart.map((c) => ({
+        product_code: c.item.name,
+        quantity: c.qty.toString(),
+        total: ((c.item.price + c.modifiersTotal) * c.qty).toFixed(2),
+      }));
+
+      const result = await sendCreditSale({
+        amountCents: dollarsToCents(totalWithTax),
+        tipEnabled: true,
+        printReceipt: true,
+        invoiceNumber: orderNumber.toString(),
+        lineItems,
+        wsUrl: selectedEpi || undefined,
       });
-      const checkoutUrl = await createCheckoutSession(items, "pickup", {
-        name: orderType === "dine-in" ? "Dine-In Customer" : "Take-Out Customer",
-        phone: "POS Order",
-        email: "",
-        address: "",
-        notes: `POS ${orderType} order #${orderNumber}`,
+
+      await saveOrder("card", {
+        auth_code: result.CODE,
+        masked_pan: result.MASKED_PAN,
+        rrn: result.RRN,
       });
-      window.location.href = checkoutUrl;
+
+      toast.success(
+        `Payment approved — ${result.ISSUER} ${result.MASKED_PAN} | Auth: ${result.CODE}`
+      );
+      resetOrder();
     } catch (error) {
       console.error("POS checkout error:", error);
       toast.error(error instanceof Error ? error.message : "Payment failed");
+    } finally {
       setIsProcessing(false);
     }
   };
@@ -179,9 +217,9 @@ const POSPage = () => {
       {/* POS Top Bar */}
       <header className="bg-primary text-primary-foreground px-4 py-2 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-4">
-          <button onClick={() => navigate("/")} className="flex items-center gap-1.5 text-xs font-sans font-semibold text-primary-foreground/70 hover:text-primary-foreground active:scale-95 transition-all">
-            <ArrowLeft className="w-3.5 h-3.5" />
-            Exit
+          <button onClick={async () => { await signOut(); navigate("/auth?redirect=/pos"); }} className="flex items-center gap-1.5 text-xs font-sans font-semibold text-primary-foreground/70 hover:text-primary-foreground active:scale-95 transition-all">
+            <LogOut className="w-3.5 h-3.5" />
+            Sign Out
           </button>
           <div className="h-4 w-px bg-primary-foreground/20" />
           <span className="font-serif text-sm font-medium">Fenton Gyro</span>
@@ -192,6 +230,20 @@ const POSPage = () => {
             <Hash className="w-3 h-3" />
             Order #{orderNumber}
           </span>
+          {/* Terminal selector */}
+          {epis.length > 0 && (
+            <select
+              value={selectedEpi}
+              onChange={(e) => setSelectedEpi(e.target.value)}
+              className="bg-primary-foreground/10 text-primary-foreground text-xs font-sans font-semibold px-2 py-1.5 rounded-sm border-none focus:outline-none focus:ring-1 focus:ring-accent/50"
+            >
+              {epis.map((epi) => (
+                <option key={epi.id} value={epi.wsUrl} className="text-foreground bg-background">
+                  {epi.label}
+                </option>
+              ))}
+            </select>
+          )}
           {/* Order type toggle */}
           <div className="flex bg-primary-foreground/10 rounded-sm overflow-hidden">
             <button
@@ -390,12 +442,10 @@ const POSPage = () => {
                   )}
                 </button>
                 <button
-                  onClick={() => {
+                  onClick={async () => {
+                    await saveOrder("cash");
                     toast.success(`Cash order #${orderNumber} confirmed — $${(totalPrice * 1.08).toFixed(2)}`);
-                    setCart([]);
-                    setSelectedItem(null);
-                    setItemQty(1);
-                    setSelectedMods({});
+                    resetOrder();
                   }}
                   disabled={isProcessing}
                   className="py-4 bg-primary text-primary-foreground font-sans font-bold text-base uppercase tracking-wider rounded-md flex items-center justify-center gap-2.5 hover:opacity-90 active:scale-[0.96] transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-md"
@@ -415,4 +465,22 @@ const POSPage = () => {
   );
 };
 
-export default POSPage;
+const POSPageWithAuth = () => {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-background">
+        <Loader2 className="w-8 h-8 animate-spin text-accent" />
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <Navigate to="/auth?redirect=/pos" replace />;
+  }
+
+  return <POSPage />;
+};
+
+export default POSPageWithAuth;
