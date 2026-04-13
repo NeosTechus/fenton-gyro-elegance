@@ -66,6 +66,8 @@ export type ValorResponse = ValorSuccessResponse | ValorFailureResponse | ValorA
 
 // ── Config ───────────────────────────────────────────────────────────────
 
+export const isTestMode = import.meta.env.VITE_TEST_MODE === "true";
+
 export function getValorConfig() {
   return {
     wsUrl: import.meta.env.VITE_VALOR_WS_URL || "",
@@ -74,7 +76,32 @@ export function getValorConfig() {
 }
 
 export function isValorConfigured(): boolean {
-  return !!import.meta.env.VITE_VALOR_WS_URL;
+  return isTestMode || !!import.meta.env.VITE_VALOR_WS_URL;
+}
+
+// ── Test mode mock ───────────────────────────────────────────────────────
+
+let testTranCounter = 1000;
+
+function mockCreditSaleResponse(amountCents: string): ValorSuccessResponse {
+  testTranCounter++;
+  return {
+    STATE: "0",
+    AMOUNT: amountCents,
+    MASKED_PAN: "4111 **** **** 1111",
+    ISSUER: "VISA",
+    RRN: `TEST${Date.now().toString().slice(-8)}`,
+    CODE: `TST${testTranCounter}`,
+    AUTH_RSP_TEXT: "APPROVAL",
+    DATE: new Date().toLocaleString("en-US", { hour12: false }).replace(",", ""),
+    TRAN_NO: testTranCounter.toString(),
+    BATCH_NO: "1",
+    SERIAL_NO: "TEST000001",
+    TRAN_TYPE: "Credit",
+    TRAN_METHOD: "Sale",
+    ENTRY_MODE: "CHIP",
+    TXN_ID: testTranCounter.toString(),
+  };
 }
 
 // ── Helper: convert dollar amount to cents string ────────────────────────
@@ -99,6 +126,15 @@ export function sendValorTransaction(
   request: ValorSaleRequest,
   overrideWsUrl?: string
 ): Promise<ValorSuccessResponse | ValorFailureResponse> {
+  // Test mode — simulate a 2-second payment delay then return success
+  if (isTestMode) {
+    return new Promise((resolve) => {
+      setTimeout(() => {
+        resolve(mockCreditSaleResponse(request.AMOUNT));
+      }, 2000);
+    });
+  }
+
   const wsUrl = overrideWsUrl || getValorConfig().wsUrl;
   if (!wsUrl) {
     return Promise.reject(new Error("No terminal URL configured. Select a terminal or set VITE_VALOR_WS_URL."));

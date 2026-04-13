@@ -20,14 +20,19 @@ const AuthPage = () => {
   const redirectTo = searchParams.get("redirect");
 
   const getPostLoginRoute = (email: string) => {
-    if (redirectTo) return redirectTo;
-    // Direct email-based routing for staff devices
     const lower = email.toLowerCase();
-    if (lower === "kiosk@fentongyro.com") return "/kiosk";
-    if (lower === "pos@fentongyro.com") return "/pos";
     const role = getRoleForEmail(email);
+
+    // Admin and chef always go to their dashboard regardless of redirect
     if (role === "admin") return "/admin";
     if (role === "chef") return "/kitchen";
+
+    // Staff accounts go to their specific page
+    if (lower === "kiosk@fentongyro.com") return "/kiosk";
+    if (lower === "pos@fentongyro.com") return "/pos";
+
+    // Customers follow the redirect param or go home
+    if (redirectTo) return redirectTo;
     return "/";
   };
 

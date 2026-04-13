@@ -20,10 +20,12 @@ import { menuItems, categories, MenuItem } from "@/data/menu";
 import { toast } from "sonner";
 import ModifierSelector, { getModifiersTotal, getSelectedModifierNames, getSelectedModifierDetails } from "@/components/ModifierSelector";
 import { useAuth } from "@/context/AuthContext";
-import { LogOut } from "lucide-react";
+import { LogOut, ClipboardList } from "lucide-react";
 import { sendCreditSale, dollarsToCents } from "@/lib/valor";
 import { ValorEPI, getEPIs } from "@/lib/valor-epi";
-import { createOrder } from "@/lib/orders";
+import { createOrder, subscribeToOrders, markOrderPaid, updateOrderStatus } from "@/lib/orders";
+import { Order, OrderStatus } from "@/data/orders";
+import { DollarSign, ChevronDown } from "lucide-react";
 
 type OrderType = "dine-in" | "take-out";
 
@@ -48,6 +50,27 @@ const POSPage = () => {
   const [orderNumber] = useState(() => Math.floor(100 + Math.random() * 900));
   const [epis] = useState<ValorEPI[]>(() => getEPIs());
   const [selectedEpi, setSelectedEpi] = useState<string>(epis[0]?.wsUrl || "");
+  const [showHistory, setShowHistory] = useState(false);
+  const [orderHistory, setOrderHistory] = useState<Order[]>([]);
+  const [historySearch, setHistorySearch] = useState("");
+  const [historyDateFilter, setHistoryDateFilter] = useState("today");
+  const [historySourceFilter, setHistorySourceFilter] = useState("all");
+
+  const [unpaidOrders, setUnpaidOrders] = useState<Order[]>([]);
+  const [showPendingPayments, setShowPendingPayments] = useState(false);
+  const [expandedUnpaidOrder, setExpandedUnpaidOrder] = useState<string | null>(null);
+  const [splitPayment, setSplitPayment] = useState<{ orderId: string; cashAmount: string } | null>(null);
+  const [posSplitMode, setPosSplitMode] = useState(false);
+  const [posSplitCash, setPosSplitCash] = useState("");
+
+  // Real-time order history — all sources
+  useEffect(() => {
+    const unsubscribe = subscribeToOrders((orders) => {
+      setOrderHistory(orders);
+      setUnpaidOrders(orders.filter((o) => o.payment_status === "unpaid"));
+    });
+    return () => unsubscribe();
+  }, []);
 
   const totalItems = cart.reduce((s, c) => s + c.qty, 0);
   const totalPrice = cart.reduce((s, c) => s + (c.item.price + c.modifiersTotal) * c.qty, 0);
@@ -130,7 +153,8 @@ const POSPage = () => {
       });
 
       toast.success(
-        `Payment approved — ${result.ISSUER} ${result.MASKED_PAN} | Auth: ${result.CODE}`
+        `Payment approved — ${result.ISSUER} ${result.MASKED_PAN} | Auth: ${result.CODE}`,
+        { duration: 2000 }
       );
       resetOrder();
     } catch (error) {
@@ -224,6 +248,17 @@ const POSPage = () => {
           <div className="h-4 w-px bg-primary-foreground/20" />
           <span className="font-serif text-sm font-medium">Fenton Gyro</span>
           <span className="text-[10px] uppercase tracking-wider font-sans font-semibold bg-primary-foreground/15 text-primary-foreground/80 px-2 py-0.5 rounded">POS</span>
+          <button
+            onClick={() => setShowHistory(!showHistory)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-sans font-semibold rounded-sm transition-all ${
+              showHistory
+                ? "bg-primary-foreground text-primary"
+                : "bg-primary-foreground/10 text-primary-foreground/70 hover:text-primary-foreground"
+            }`}
+          >
+            <ClipboardList className="w-3.5 h-3.5" />
+            Orders ({orderHistory.length})
+          </button>
         </div>
         <div className="flex items-center gap-3">
           <span className="flex items-center gap-1.5 text-xs font-sans font-semibold text-primary-foreground/70">
@@ -261,6 +296,209 @@ const POSPage = () => {
           </div>
         </div>
       </header>
+
+      {/* Pending Cash Payments from Kiosk — collapsible dropdown */}
+      {unpaidOrders.length > 0 && (
+        <div className="shrink-0 relative">
+          <button
+            onClick={() => setShowPendingPayments(!showPendingPayments)}
+            className="w-full bg-amber-50 border-b-2 border-amber-200 px-4 py-2 flex items-center justify-between hover:bg-amber-100 transition-colors"
+          >
+            <div className="flex items-center gap-2">
+              <DollarSign className="w-4 h-4 text-amber-600" />
+              <span className="text-xs font-sans font-bold text-amber-800">
+                {unpaidOrders.length} Pending Payment{unpaidOrders.length > 1 ? "s" : ""}
+              </span>
+              <span className="text-xs font-bold text-amber-700">
+                — ${unpaidOrders.reduce((s, o) => s + o.total, 0).toFixed(2)} total
+              </span>
+            </div>
+            <ChevronDown className={`w-4 h-4 text-amber-600 transition-transform ${showPendingPayments ? "rotate-180" : ""}`} />
+          </button>
+
+          {showPendingPayments && (
+            <div className="absolute top-full left-0 right-0 z-40 bg-amber-50 border-b-2 border-amber-200 shadow-lg max-h-[50vh] overflow-y-auto">
+              <div className="p-3 space-y-2">
+                {unpaidOrders.map((order) => {
+                  const isExpanded = expandedUnpaidOrder === order.id;
+                  const tag = `#${order.id.slice(0, 6).toUpperCase()}`;
+                  const timeAgo = () => {
+                    const diff = Date.now() - new Date(order.created_at).getTime();
+                    const mins = Math.floor(diff / 60000);
+                    if (mins < 60) return `${mins}m ago`;
+                    return `${Math.floor(mins / 60)}h ago`;
+                  };
+
+                  return (
+                    <div key={order.id} className="bg-white border border-amber-200 rounded-sm overflow-hidden">
+                      {/* Order summary row — tap to expand */}
+                      <button
+                        onClick={() => setExpandedUnpaidOrder(isExpanded ? null : order.id)}
+                        className="w-full px-3 py-2.5 flex items-center justify-between hover:bg-amber-50 transition-colors text-left"
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-xs font-bold text-amber-700">{tag}</span>
+                          <span className="px-1.5 py-0.5 rounded text-[8px] font-bold bg-purple-100 text-purple-700">KIOSK</span>
+                          <span className="text-[10px] text-amber-600">
+                            {order.items.length} item{order.items.length > 1 ? "s" : ""}
+                          </span>
+                          <span className="text-[10px] text-muted-foreground">{timeAgo()}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-bold text-amber-800">${order.total.toFixed(2)}</span>
+                          <ChevronDown className={`w-3.5 h-3.5 text-amber-500 transition-transform ${isExpanded ? "rotate-180" : ""}`} />
+                        </div>
+                      </button>
+
+                      {/* Expanded details */}
+                      {isExpanded && (
+                        <div className="border-t border-amber-100">
+                          {/* Items */}
+                          <div className="px-3 py-2 space-y-1">
+                            {order.items.map((item, i) => (
+                              <div key={i} className="flex justify-between text-xs">
+                                <span>
+                                  <span className="text-muted-foreground">{item.quantity}x</span>{" "}
+                                  {item.name}
+                                </span>
+                                <span className="font-semibold">${(item.price * item.quantity).toFixed(2)}</span>
+                              </div>
+                            ))}
+                            <div className="flex justify-between text-xs font-bold pt-1.5 border-t border-amber-100 mt-1.5">
+                              <span>Total</span>
+                              <span className="text-amber-800">${order.total.toFixed(2)}</span>
+                            </div>
+                            <div className="flex gap-2 text-[10px] text-muted-foreground pt-1">
+                              <span className="capitalize">{order.order_type}</span>
+                              {order.notes && <span>· {order.notes}</span>}
+                            </div>
+                          </div>
+
+                          {/* Action buttons */}
+                          {splitPayment?.orderId === order.id ? (
+                            <div className="px-3 py-3 bg-blue-50 space-y-2">
+                              <p className="text-[10px] font-sans font-bold text-blue-800 uppercase tracking-wider">Split Payment — ${order.total.toFixed(2)}</p>
+                              <div className="flex items-center gap-2">
+                                <div className="flex-1">
+                                  <label className="text-[9px] text-blue-600 font-semibold uppercase">Cash Amount</label>
+                                  <div className="relative">
+                                    <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-blue-400">$</span>
+                                    <input
+                                      type="number"
+                                      step="0.01"
+                                      min="0"
+                                      max={order.total}
+                                      value={splitPayment.cashAmount}
+                                      onChange={(e) => setSplitPayment({ ...splitPayment, cashAmount: e.target.value })}
+                                      className="w-full pl-5 pr-2 py-2 bg-white border border-blue-200 rounded-sm text-sm font-bold text-blue-800 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                                      autoFocus
+                                    />
+                                  </div>
+                                </div>
+                                <div className="flex-1">
+                                  <label className="text-[9px] text-blue-600 font-semibold uppercase">Card Amount</label>
+                                  <div className="py-2 px-2 bg-blue-100 border border-blue-200 rounded-sm text-sm font-bold text-blue-800 text-center">
+                                    ${Math.max(0, order.total - (parseFloat(splitPayment.cashAmount) || 0)).toFixed(2)}
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="grid grid-cols-2 gap-1.5">
+                                <button
+                                  onClick={async () => {
+                                    const cashAmt = parseFloat(splitPayment.cashAmount) || 0;
+                                    const cardAmt = Math.max(0, order.total - cashAmt);
+                                    if (cardAmt > 0) {
+                                      try {
+                                        await sendCreditSale({
+                                          amountCents: dollarsToCents(cardAmt),
+                                          tipEnabled: false,
+                                          printReceipt: true,
+                                          invoiceNumber: order.id,
+                                          wsUrl: selectedEpi || undefined,
+                                        });
+                                      } catch (err) {
+                                        toast.error(err instanceof Error ? err.message : "Card payment failed");
+                                        return;
+                                      }
+                                    }
+                                    await markOrderPaid(order.id);
+                                    toast.success(`Split payment: $${cashAmt.toFixed(2)} cash + $${cardAmt.toFixed(2)} card`, { duration: 3000 });
+                                    setSplitPayment(null);
+                                    setExpandedUnpaidOrder(null);
+                                  }}
+                                  className="py-2.5 bg-emerald-600 text-white text-[10px] font-sans font-bold uppercase tracking-wider rounded-sm hover:bg-emerald-700 active:scale-[0.95] transition-all"
+                                >
+                                  Confirm Split
+                                </button>
+                                <button
+                                  onClick={() => setSplitPayment(null)}
+                                  className="py-2.5 bg-muted text-muted-foreground text-[10px] font-sans font-bold uppercase tracking-wider rounded-sm hover:bg-muted/80 active:scale-[0.95] transition-all"
+                                >
+                                  Back
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                          <div className="grid grid-cols-4 gap-1.5 px-3 py-2 bg-amber-50/50">
+                            <button
+                              onClick={async () => {
+                                await markOrderPaid(order.id);
+                                toast.success(`Cash collected for ${tag}`, { duration: 2000 });
+                                setExpandedUnpaidOrder(null);
+                              }}
+                              className="py-2.5 bg-emerald-600 text-white text-[10px] font-sans font-bold uppercase tracking-wider rounded-sm hover:bg-emerald-700 active:scale-[0.95] transition-all"
+                            >
+                              💵 Cash
+                            </button>
+                            <button
+                              onClick={async () => {
+                                try {
+                                  const result = await sendCreditSale({
+                                    amountCents: dollarsToCents(order.total),
+                                    tipEnabled: true,
+                                    printReceipt: true,
+                                    invoiceNumber: order.id,
+                                    wsUrl: selectedEpi || undefined,
+                                  });
+                                  await markOrderPaid(order.id);
+                                  toast.success(`Card payment for ${tag} — ${result.ISSUER} ${result.MASKED_PAN}`, { duration: 2000 });
+                                } catch (err) {
+                                  toast.error(err instanceof Error ? err.message : "Card payment failed");
+                                }
+                                setExpandedUnpaidOrder(null);
+                              }}
+                              className="py-2.5 bg-blue-600 text-white text-[10px] font-sans font-bold uppercase tracking-wider rounded-sm hover:bg-blue-700 active:scale-[0.95] transition-all"
+                            >
+                              💳 Card
+                            </button>
+                            <button
+                              onClick={() => setSplitPayment({ orderId: order.id, cashAmount: (order.total / 2).toFixed(2) })}
+                              className="py-2.5 bg-violet-600 text-white text-[10px] font-sans font-bold uppercase tracking-wider rounded-sm hover:bg-violet-700 active:scale-[0.95] transition-all"
+                            >
+                              ✂️ Split
+                            </button>
+                            <button
+                              onClick={async () => {
+                                await updateOrderStatus(order.id, "cancelled");
+                                toast.success(`Order ${tag} cancelled`, { duration: 2000 });
+                                setExpandedUnpaidOrder(null);
+                              }}
+                              className="py-2.5 bg-red-600 text-white text-[10px] font-sans font-bold uppercase tracking-wider rounded-sm hover:bg-red-700 active:scale-[0.95] transition-all"
+                            >
+                              ❌ Cancel
+                            </button>
+                          </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Main split layout: Menu (left) + Cart (right) */}
       <div className="flex-1 flex overflow-hidden">
@@ -429,31 +667,110 @@ const POSPage = () => {
                 <span className="font-sans font-bold text-sm">Total</span>
                 <span className="font-sans font-bold text-sm text-accent">${(totalPrice * 1.08).toFixed(2)}</span>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <button
-                  onClick={handleCheckout}
-                  disabled={isProcessing}
-                  className="py-4 bg-accent text-accent-foreground font-sans font-bold text-base uppercase tracking-wider rounded-md flex items-center justify-center gap-2.5 hover:opacity-90 active:scale-[0.96] transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-md"
-                >
-                  {isProcessing ? (
-                    <><Loader2 className="w-5 h-5 animate-spin" /> Processing…</>
-                  ) : (
-                    <><CreditCard className="w-5 h-5" /> Tap to Pay</>
-                  )}
-                </button>
-                <button
-                  onClick={async () => {
-                    await saveOrder("cash");
-                    toast.success(`Cash order #${orderNumber} confirmed — $${(totalPrice * 1.08).toFixed(2)}`);
-                    resetOrder();
-                  }}
-                  disabled={isProcessing}
-                  className="py-4 bg-primary text-primary-foreground font-sans font-bold text-base uppercase tracking-wider rounded-md flex items-center justify-center gap-2.5 hover:opacity-90 active:scale-[0.96] transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-md"
-                >
-                  <Banknote className="w-5 h-5" /> Pay Cash
-                </button>
-              </div>
-              <p className="text-center text-xs text-muted-foreground mt-2">Total: ${(totalPrice * 1.08).toFixed(2)}</p>
+              {posSplitMode ? (
+                <div className="space-y-2 bg-violet-50 border border-violet-200 rounded-md p-3">
+                  <p className="text-[10px] font-sans font-bold text-violet-800 uppercase tracking-wider">Split Payment — ${(totalPrice * 1.08).toFixed(2)}</p>
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1">
+                      <label className="text-[9px] text-violet-600 font-semibold uppercase">Cash</label>
+                      <div className="relative">
+                        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-violet-400">$</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          max={totalPrice * 1.08}
+                          value={posSplitCash}
+                          onChange={(e) => setPosSplitCash(e.target.value)}
+                          className="w-full pl-5 pr-2 py-2 bg-white border border-violet-200 rounded-sm text-sm font-bold text-violet-800 focus:outline-none focus:ring-1 focus:ring-violet-400"
+                          autoFocus
+                        />
+                      </div>
+                    </div>
+                    <div className="flex-1">
+                      <label className="text-[9px] text-violet-600 font-semibold uppercase">Card</label>
+                      <div className="py-2 px-2 bg-violet-100 border border-violet-200 rounded-sm text-sm font-bold text-violet-800 text-center">
+                        ${Math.max(0, totalPrice * 1.08 - (parseFloat(posSplitCash) || 0)).toFixed(2)}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={async () => {
+                        const total = totalPrice * 1.08;
+                        const cashAmt = parseFloat(posSplitCash) || 0;
+                        const cardAmt = Math.max(0, total - cashAmt);
+                        setIsProcessing(true);
+                        try {
+                          if (cardAmt > 0) {
+                            await sendCreditSale({
+                              amountCents: dollarsToCents(cardAmt),
+                              tipEnabled: false,
+                              printReceipt: true,
+                              invoiceNumber: orderNumber.toString(),
+                              wsUrl: selectedEpi || undefined,
+                            });
+                          }
+                          await saveOrder("card", {});
+                          toast.success(`Split: $${cashAmt.toFixed(2)} cash + $${cardAmt.toFixed(2)} card`, { duration: 3000 });
+                          setPosSplitMode(false);
+                          setPosSplitCash("");
+                          resetOrder();
+                        } catch (err) {
+                          toast.error(err instanceof Error ? err.message : "Card payment failed");
+                        } finally {
+                          setIsProcessing(false);
+                        }
+                      }}
+                      disabled={isProcessing}
+                      className="py-3 bg-emerald-600 text-white font-sans font-bold text-xs uppercase tracking-wider rounded-sm hover:bg-emerald-700 active:scale-[0.95] transition-all disabled:opacity-50"
+                    >
+                      {isProcessing ? "Processing…" : "Confirm Split"}
+                    </button>
+                    <button
+                      onClick={() => { setPosSplitMode(false); setPosSplitCash(""); }}
+                      className="py-3 bg-muted text-muted-foreground font-sans font-bold text-xs uppercase tracking-wider rounded-sm hover:bg-muted/80 active:scale-[0.95] transition-all"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-3 gap-2">
+                    <button
+                      onClick={handleCheckout}
+                      disabled={isProcessing}
+                      className="py-4 bg-accent text-accent-foreground font-sans font-bold text-sm uppercase tracking-wider rounded-md flex items-center justify-center gap-2 hover:opacity-90 active:scale-[0.96] transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-md"
+                    >
+                      {isProcessing ? (
+                        <><Loader2 className="w-4 h-4 animate-spin" /> Wait…</>
+                      ) : (
+                        <><CreditCard className="w-4 h-4" /> Card</>
+                      )}
+                    </button>
+                    <button
+                      onClick={async () => {
+                        await saveOrder("cash");
+                        toast.success(`Cash order #${orderNumber} — $${(totalPrice * 1.08).toFixed(2)}`, { duration: 2000 });
+                        resetOrder();
+                      }}
+                      disabled={isProcessing}
+                      className="py-4 bg-primary text-primary-foreground font-sans font-bold text-sm uppercase tracking-wider rounded-md flex items-center justify-center gap-2 hover:opacity-90 active:scale-[0.96] transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-md"
+                    >
+                      <Banknote className="w-4 h-4" /> Cash
+                    </button>
+                    <button
+                      onClick={() => { setPosSplitMode(true); setPosSplitCash((totalPrice * 1.08 / 2).toFixed(2)); }}
+                      disabled={isProcessing}
+                      className="py-4 bg-violet-600 text-white font-sans font-bold text-sm uppercase tracking-wider rounded-md flex items-center justify-center gap-2 hover:opacity-90 active:scale-[0.96] transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-md"
+                    >
+                      ✂️ Split
+                    </button>
+                  </div>
+                  <p className="text-center text-xs text-muted-foreground mt-1">Total: ${(totalPrice * 1.08).toFixed(2)}</p>
+                </>
+              )}
             </div>
           )}
         </div>
@@ -461,6 +778,148 @@ const POSPage = () => {
 
       {/* Item detail modal */}
       {selectedItem && <ItemDetailModal />}
+
+      {/* Order history slide-over */}
+      {showHistory && (
+        <>
+          <div className="fixed inset-0 bg-foreground/30 z-50" onClick={() => setShowHistory(false)} />
+          <div className="fixed right-0 top-0 bottom-0 w-96 bg-background border-l border-border z-50 flex flex-col shadow-2xl">
+            <div className="px-4 py-3 border-b border-border flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2">
+                <ClipboardList className="w-4 h-4 text-accent" />
+                <h2 className="font-sans font-bold text-sm">Order History</h2>
+              </div>
+              <button onClick={() => setShowHistory(false)} className="w-8 h-8 flex items-center justify-center rounded-sm hover:bg-muted active:scale-95">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            {/* Filters */}
+            <div className="px-3 py-2 border-b border-border space-y-2 shrink-0">
+              <div className="relative">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                <input
+                  type="text"
+                  placeholder="Search by name, ID, or phone..."
+                  value={historySearch}
+                  onChange={(e) => setHistorySearch(e.target.value)}
+                  className="w-full pl-8 pr-3 py-1.5 bg-muted border border-border rounded-sm text-xs font-sans focus:outline-none focus:ring-1 focus:ring-accent/50"
+                />
+              </div>
+              <div className="flex gap-2">
+                <select
+                  value={historyDateFilter}
+                  onChange={(e) => setHistoryDateFilter(e.target.value)}
+                  className="flex-1 px-2 py-1.5 bg-muted border border-border rounded-sm text-xs font-sans focus:outline-none"
+                >
+                  <option value="today">Today</option>
+                  <option value="week">This Week</option>
+                  <option value="all">All Time</option>
+                </select>
+                <select
+                  value={historySourceFilter}
+                  onChange={(e) => setHistorySourceFilter(e.target.value)}
+                  className="flex-1 px-2 py-1.5 bg-muted border border-border rounded-sm text-xs font-sans focus:outline-none"
+                >
+                  <option value="all">All Sources</option>
+                  <option value="pos">POS</option>
+                  <option value="kiosk">Kiosk</option>
+                  <option value="web">Web</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-3 space-y-2">
+              {(() => {
+                const now = new Date();
+                const todayStart = new Date(now); todayStart.setHours(0,0,0,0);
+                const weekStart = new Date(now); weekStart.setDate(now.getDate() - 7); weekStart.setHours(0,0,0,0);
+
+                const filtered = orderHistory.filter((order) => {
+                  // Date filter
+                  const orderDate = new Date(order.created_at);
+                  if (historyDateFilter === "today" && orderDate < todayStart) return false;
+                  if (historyDateFilter === "week" && orderDate < weekStart) return false;
+
+                  // Source filter
+                  if (historySourceFilter !== "all" && order.source !== historySourceFilter) return false;
+
+                  // Search filter
+                  if (historySearch.trim()) {
+                    const q = historySearch.toLowerCase();
+                    const matchName = order.customer_name.toLowerCase().includes(q);
+                    const matchPhone = order.customer_phone.toLowerCase().includes(q);
+                    const matchId = order.id.toLowerCase().includes(q);
+                    const matchItems = order.items.some((i) => i.name.toLowerCase().includes(q));
+                    if (!matchName && !matchPhone && !matchId && !matchItems) return false;
+                  }
+
+                  return true;
+                });
+
+                if (filtered.length === 0) return (
+                  <div className="text-center py-12">
+                    <ClipboardList className="w-10 h-10 text-muted-foreground/15 mx-auto mb-2" />
+                    <p className="text-xs text-muted-foreground">No orders found</p>
+                  </div>
+                );
+
+                return filtered.map((order) => {
+                  const statusColors: Record<string, string> = {
+                    pending: "bg-yellow-100 text-yellow-800",
+                    received: "bg-blue-100 text-blue-700",
+                    preparing: "bg-orange-100 text-orange-700",
+                    ready: "bg-emerald-100 text-emerald-700",
+                    completed: "bg-primary/10 text-primary",
+                    cancelled: "bg-red-100 text-red-700",
+                  };
+                  const timeAgo = () => {
+                    const diff = Date.now() - new Date(order.created_at).getTime();
+                    const mins = Math.floor(diff / 60000);
+                    if (mins < 60) return `${mins}m ago`;
+                    const hrs = Math.floor(mins / 60);
+                    return `${hrs}h ago`;
+                  };
+                  return (
+                    <div key={order.id} className="bg-card border border-border rounded-sm p-3">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-mono text-xs font-bold text-accent">
+                            #{order.id.slice(0, 6).toUpperCase()}
+                          </span>
+                          {order.source && (
+                            <span className={`px-1.5 py-0.5 rounded text-[8px] font-sans font-bold tracking-wider ${
+                              order.source === "pos" ? "bg-blue-100 text-blue-700" :
+                              order.source === "kiosk" ? "bg-purple-100 text-purple-700" :
+                              "bg-amber-100 text-amber-700"
+                            }`}>
+                              {order.source.toUpperCase()}
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <span className={`px-1.5 py-0.5 rounded text-[9px] font-sans font-bold ${statusColors[order.status] || ""}`}>
+                            {order.status.toUpperCase()}
+                          </span>
+                          <span className="text-[9px] text-muted-foreground">{timeAgo()}</span>
+                        </div>
+                      </div>
+                      <div className="text-xs text-muted-foreground mb-1">
+                        {order.items.map((i) => `${i.quantity}x ${i.name}`).join(", ")}
+                      </div>
+                      <div className="flex justify-between items-center pt-1.5 border-t border-border/50">
+                        <span className="text-[10px] text-muted-foreground capitalize">
+                          {order.order_type} · {order.payment || "card"}
+                        </span>
+                        <span className="font-sans font-bold text-xs text-accent">${order.total.toFixed(2)}</span>
+                      </div>
+                    </div>
+                  );
+                });
+              })()}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 };

@@ -17,6 +17,8 @@ import KitchenDisplay from "./pages/KitchenDisplay.tsx";
 import POSPage from "./pages/POSPage.tsx";
 import KioskPage from "./pages/KioskPage.tsx";
 import SettingsPage from "./pages/SettingsPage.tsx";
+import TrackOrder from "./pages/TrackOrder.tsx";
+import OrderLookup from "./pages/OrderLookup.tsx";
 import NotFound from "./pages/NotFound.tsx";
 
 const queryClient = new QueryClient();
@@ -42,6 +44,8 @@ const App = () => (
               <Route path="/pos" element={<POSPage />} />
               <Route path="/kiosk" element={<KioskPage />} />
               <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/track/:orderId" element={<TrackOrder />} />
+              <Route path="/orders" element={<OrderLookup />} />
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />
             </Routes>

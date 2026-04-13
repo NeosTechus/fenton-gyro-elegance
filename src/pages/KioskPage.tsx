@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate, Navigate } from "react-router-dom";
 import {
   ArrowLeft,
@@ -52,6 +52,39 @@ const KioskPage = () => {
   const totalItems = cart.reduce((s, c) => s + c.qty, 0);
   const totalPrice = cart.reduce((s, c) => s + (c.item.price + c.modifiersTotal) * c.qty, 0);
 
+  // ── Inactivity timeout: reset to welcome after 2 min of no touch ──
+  const inactivityTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const INACTIVITY_MS = 2 * 60 * 1000; // 2 minutes
+
+  const resetInactivityTimer = useCallback(() => {
+    if (inactivityTimer.current) clearTimeout(inactivityTimer.current);
+    // Only start timer if not on welcome screen and not processing payment
+    if (step !== "welcome" && !isProcessing) {
+      inactivityTimer.current = setTimeout(() => {
+        setStep("welcome");
+        setOrderType(null);
+        setSelectedCategory(null);
+        setSelectedItem(null);
+        setItemQty(1);
+        setCart([]);
+        setSearchQuery("");
+        setSelectedMods({});
+      }, INACTIVITY_MS);
+    }
+  }, [step, isProcessing]);
+
+  // Reset timer on any touch/click/scroll
+  useEffect(() => {
+    const events = ["touchstart", "mousedown", "scroll", "keydown"];
+    const handler = () => resetInactivityTimer();
+    events.forEach((e) => window.addEventListener(e, handler, { passive: true }));
+    resetInactivityTimer();
+    return () => {
+      events.forEach((e) => window.removeEventListener(e, handler));
+      if (inactivityTimer.current) clearTimeout(inactivityTimer.current);
+    };
+  }, [resetInactivityTimer]);
+
   const categoryImages: Record<string, string> = {};
   categories.forEach((cat) => {
     const first = menuItems.find((m) => m.category === cat);
@@ -72,7 +105,7 @@ const KioskPage = () => {
       }
       return [...prev, { item, qty, selectedModifiers: mods, modifiersTotal: modTotal }];
     });
-    toast.success(`${qty}× ${item.name} added`);
+    toast.success(`${qty}× ${item.name} added`, { duration: 1000 });
   };
 
   const updateCartQty = (index: number, delta: number) => {
@@ -103,6 +136,7 @@ const KioskPage = () => {
       notes: `Kiosk ${orderType} order`,
       source: "kiosk",
       payment,
+      payment_status: payment === "cash" ? "unpaid" : "paid",
       terminal_epi: selectedEpi || undefined,
       ...extra,
     });
@@ -133,7 +167,7 @@ const KioskPage = () => {
         rrn: result.RRN,
       });
 
-      toast.success("Payment approved! Thank you.");
+      toast.success("Payment approved! Thank you.", { duration: 1000 });
       resetOrder();
     } catch (error) {
       console.error("Kiosk checkout error:", error);
@@ -151,6 +185,22 @@ const KioskPage = () => {
     setCart([]);
     setSearchQuery("");
     setSelectedMods({});
+  };
+
+  const FloatingCartButton = () => {
+    if (totalItems === 0 || step === "welcome" || step === "order-type" || step === "cart") return null;
+    return (
+      <button
+        onClick={() => setStep("cart")}
+        className="fixed bottom-6 right-6 z-50 flex items-center gap-3 px-6 py-4 bg-accent text-accent-foreground font-sans font-bold text-base rounded-full shadow-2xl shadow-accent/30 hover:opacity-90 active:scale-[0.95] transition-all animate-fade-up"
+      >
+        <ShoppingBag className="w-5 h-5" />
+        <span>${totalPrice.toFixed(2)}</span>
+        <span className="w-7 h-7 bg-primary text-primary-foreground text-xs font-bold rounded-full flex items-center justify-center">
+          {totalItems}
+        </span>
+      </button>
+    );
   };
 
   const TopBar = ({ backLabel, onBack }: { backLabel: string; onBack: () => void }) => (
@@ -304,6 +354,7 @@ const KioskPage = () => {
             </div>
           )}
         </main>
+        <FloatingCartButton />
       </div>
     );
   }
@@ -338,6 +389,7 @@ const KioskPage = () => {
             ))}
           </div>
         </main>
+        <FloatingCartButton />
       </div>
     );
   }
@@ -424,6 +476,7 @@ const KioskPage = () => {
             </div>
           </div>
         </main>
+        <FloatingCartButton />
       </div>
     );
   }
@@ -526,7 +579,7 @@ const KioskPage = () => {
                   <button
                     onClick={async () => {
                       await saveKioskOrder("cash");
-                      toast.success("Order placed! Please pay at the counter.");
+                      toast.success("Order placed! Please pay at the counter.", { duration: 1000 });
                       resetOrder();
                     }}
                     disabled={isProcessing}
@@ -544,7 +597,7 @@ const KioskPage = () => {
     );
   }
 
-  return null;
+  return <FloatingCartButton />;
 };
 
 const KioskPageWithAuth = () => {

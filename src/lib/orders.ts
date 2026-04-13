@@ -14,11 +14,10 @@ import {
   onSnapshot,
   serverTimestamp,
   Timestamp,
-  where,
   limit,
 } from "firebase/firestore";
 import { db, isFirebaseConfigured } from "@/lib/firebase";
-import { Order, OrderStatus, mockOrders } from "@/data/orders";
+import { Order, OrderStatus, PaymentStatus, mockOrders } from "@/data/orders";
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -35,6 +34,7 @@ export interface CreateOrderInput {
   notes: string;
   source: OrderSource;
   payment: OrderPayment;
+  payment_status?: PaymentStatus;
   terminal_epi?: string;
   auth_code?: string;
   masked_pan?: string;
@@ -49,9 +49,21 @@ export async function createOrder(input: CreateOrderInput): Promise<string> {
     return `local-${Date.now()}`;
   }
 
+  // POS/Kiosk orders are auto-accepted; web orders need chef approval
+  const autoAccept = input.source === "pos" || input.source === "kiosk";
+
+  // Strip undefined values — Firestore rejects them
+  const cleanInput = Object.fromEntries(
+    Object.entries(input).filter(([_, v]) => v !== undefined)
+  );
+
+  // Unpaid kiosk cash orders wait at POS for payment collection
+  const isUnpaidCash = input.payment_status === "unpaid";
+
   const docRef = await addDoc(collection(db, "orders"), {
-    ...input,
-    status: "received" as OrderStatus,
+    ...cleanInput,
+    status: isUnpaidCash ? "pending" : (autoAccept ? "received" : "pending") as OrderStatus,
+    payment_status: input.payment_status || "paid",
     prep_time: 15,
     created_at: serverTimestamp(),
   });
@@ -70,6 +82,14 @@ export async function updateOrderStatus(
 }
 
 // ── Update Prep Time ─────────────────────────────────────────────────────
+
+export async function markOrderPaid(orderId: string): Promise<void> {
+  if (!isFirebaseConfigured || !db) return;
+  await updateDoc(doc(db, "orders", orderId), {
+    payment_status: "paid",
+    status: "received",
+  });
+}
 
 export async function updatePrepTime(
   orderId: string,
@@ -103,6 +123,9 @@ function firestoreToOrder(id: string, data: any): Order {
     order_type: data.order_type || "pickup",
     notes: data.notes || "",
     created_at: createdAt,
+    source: data.source || undefined,
+    payment: data.payment || undefined,
+    payment_status: data.payment_status || "paid",
   };
 }
 
@@ -118,13 +141,8 @@ export function subscribeToOrders(
     return () => {};
   }
 
-  // Get start of today
-  const todayStart = new Date();
-  todayStart.setHours(0, 0, 0, 0);
-
   const q = query(
     collection(db, "orders"),
-    where("created_at", ">=", Timestamp.fromDate(todayStart)),
     orderBy("created_at", "desc"),
     limit(200)
   );

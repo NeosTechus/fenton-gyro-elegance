@@ -8,8 +8,10 @@
  *   4. Customer is redirected to Valor's page to enter card details
  *   5. After payment, customer is redirected back to /order-success
  *
- * This keeps card data off our servers (PCI compliant).
+ * In TEST MODE: skips the API call and redirects straight to /order-success.
  */
+
+const isTestMode = import.meta.env.VITE_TEST_MODE === "true";
 
 export interface ValorEpageRequest {
   amount: string;       // e.g. "12.50"
@@ -23,12 +25,18 @@ export interface ValorEpageRequest {
 
 /**
  * Calls our Vercel API route to create a Valor ePage checkout session.
- * Defaults to /api/create-valor-checkout (same domain on Vercel).
- * Override with VITE_VALOR_CHECKOUT_URL for custom deployments.
+ * In test mode, returns a direct URL to /order-success.
  */
 export async function createValorCheckout(
   request: ValorEpageRequest
 ): Promise<string> {
+  if (isTestMode) {
+    // Simulate a 1-second delay then redirect to success
+    // Use invoiceNumber as orderId (it's the Firestore doc ID)
+    await new Promise((r) => setTimeout(r, 1000));
+    return `${window.location.origin}/order-success?orderId=${request.invoiceNumber || "test"}`;
+  }
+
   const functionUrl =
     import.meta.env.VITE_VALOR_CHECKOUT_URL || "/api/create-valor-checkout";
 

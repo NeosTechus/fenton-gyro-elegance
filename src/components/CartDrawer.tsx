@@ -31,7 +31,7 @@ const CartDrawer = ({ open, onClose }: { open: boolean; onClose: () => void }) =
         price: item.price,
         quantity: qty,
       }));
-      await createOrder({
+      const orderId = await createOrder({
         customer_name: formData.name,
         customer_email: formData.email,
         customer_phone: formData.phone,
@@ -48,10 +48,12 @@ const CartDrawer = ({ open, onClose }: { open: boolean; onClose: () => void }) =
         phone: formData.phone,
         email: formData.email,
         customerName: formData.name,
-        invoiceNumber: `CART-${Date.now()}`,
+        invoiceNumber: orderId,
         productDescription: items.map((i) => `${i.quantity}x ${i.name}`).join(", "),
       });
-      window.location.href = checkoutUrl;
+      const url = new URL(checkoutUrl);
+      url.searchParams.set("orderId", orderId);
+      window.location.href = url.toString();
     } catch (error) {
       console.error("Checkout error:", error);
       toast.error(error instanceof Error ? error.message : "Payment failed. Please try again.");

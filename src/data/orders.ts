@@ -1,4 +1,7 @@
 export type OrderStatus = "pending" | "received" | "preparing" | "ready" | "completed" | "cancelled";
+export type OrderSource = "pos" | "kiosk" | "web";
+export type OrderPayment = "card" | "cash";
+export type PaymentStatus = "paid" | "unpaid";
 
 export interface Order {
   id: string;
@@ -9,9 +12,12 @@ export interface Order {
   total: number;
   status: OrderStatus;
   prep_time: number; // minutes
-  order_type: "pickup" | "delivery";
+  order_type: "pickup" | "delivery" | "dine-in" | "take-out";
   notes: string;
   created_at: string;
+  source?: OrderSource;
+  payment?: OrderPayment;
+  payment_status?: PaymentStatus;
 }
 
 // Mock data for demo — replace with Supabase queries

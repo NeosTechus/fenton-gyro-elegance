@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { Check, ArrowLeft } from "lucide-react";
+import { Check, ArrowLeft, MapPin, Phone } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
 
 const OrderSuccess = () => {
@@ -26,19 +26,46 @@ const OrderSuccess = () => {
         <p className="text-muted-foreground text-sm mb-8 opacity-0 animate-fade-up" style={{ animationDelay: "750ms" }}>
           We'll call you shortly to confirm the details.
         </p>
+
         {orderId && (
-          <p className="text-xs text-muted-foreground/60 mb-6 font-mono opacity-0 animate-fade-up" style={{ animationDelay: "850ms" }}>
-            Order: {orderId.slice(-8).toUpperCase()}
-          </p>
+          <div className="opacity-0 animate-fade-up" style={{ animationDelay: "850ms" }}>
+            <p className="text-xs text-muted-foreground/60 mb-4 font-mono">
+              Order: #{orderId.slice(-8).toUpperCase()}
+            </p>
+            <Link
+              to={`/track/${orderId}`}
+              className="inline-flex items-center gap-2 px-6 py-3 bg-accent text-accent-foreground font-sans font-semibold text-sm uppercase tracking-wider rounded-sm hover:opacity-90 hover:shadow-lg active:scale-[0.97] transition-all duration-300 mb-4"
+            >
+              <MapPin className="w-4 h-4" />
+              Track Your Order
+            </Link>
+          </div>
         )}
-        <Link
-          to="/"
-          className="inline-flex items-center gap-2 px-6 py-3 bg-primary text-primary-foreground font-sans font-semibold text-sm uppercase tracking-wider rounded-sm hover:opacity-90 hover:shadow-lg active:scale-[0.97] transition-all duration-300 opacity-0 animate-fade-up"
-          style={{ animationDelay: "950ms" }}
+
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-3 opacity-0 animate-fade-up" style={{ animationDelay: "950ms" }}>
+          <Link
+            to="/"
+            className="inline-flex items-center gap-2 px-6 py-3 bg-primary text-primary-foreground font-sans font-semibold text-sm uppercase tracking-wider rounded-sm hover:opacity-90 active:scale-[0.97] transition-all duration-300"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Back to Home
+          </Link>
+          <Link
+            to="/orders"
+            className="inline-flex items-center gap-2 px-6 py-3 border border-border font-sans font-semibold text-sm uppercase tracking-wider rounded-sm hover:bg-muted active:scale-[0.97] transition-all duration-300"
+          >
+            View All Orders
+          </Link>
+        </div>
+
+        <a
+          href="tel:6366001333"
+          className="inline-flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors mt-8 opacity-0 animate-fade-up"
+          style={{ animationDelay: "1050ms" }}
         >
-          <ArrowLeft className="w-4 h-4" />
-          Back to Home
-        </Link>
+          <Phone className="w-3.5 h-3.5" />
+          Questions? Call (636) 600-1333
+        </a>
       </div>
     </section>
   );

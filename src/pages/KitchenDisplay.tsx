@@ -1,9 +1,11 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Link, Navigate } from "react-router-dom";
 import {
   ArrowLeft,
-  Bell,
+  Volume2,
+  VolumeX,
   RefreshCw,
+  Globe,
   ChefHat,
   CheckCircle2,
   Clock,
@@ -55,11 +57,32 @@ interface OrderCardProps {
   actionStatus?: OrderStatus;
 }
 
-const OrderCard = ({ order, onStatusChange, actionLabel, actionStatus }: OrderCardProps) => (
-  <div className="bg-card border border-border rounded-sm p-4 hover-lift">
+const SOURCE_BADGE: Record<string, { bg: string; text: string; label: string }> = {
+  pos: { bg: "bg-blue-100", text: "text-blue-700", label: "POS" },
+  kiosk: { bg: "bg-purple-100", text: "text-purple-700", label: "KIOSK" },
+  web: { bg: "bg-amber-100", text: "text-amber-700", label: "WEB" },
+};
+
+const OrderCard = ({ order, onStatusChange, actionLabel, actionStatus }: OrderCardProps) => {
+  const sourceBadge = order.source ? SOURCE_BADGE[order.source] : null;
+
+  return (
+  <div className={`bg-card border-2 rounded-sm p-4 hover-lift ${
+    order.source === "pos" ? "border-blue-200" :
+    order.source === "kiosk" ? "border-purple-200" :
+    order.source === "web" ? "border-amber-200" :
+    "border-border"
+  }`}>
     {/* Header */}
     <div className="flex items-center justify-between mb-3">
-      <span className="font-mono text-sm font-bold text-accent">#{order.id.slice(0, 6).toUpperCase()}</span>
+      <div className="flex items-center gap-2">
+        <span className="font-mono text-sm font-bold text-accent">#{order.id.slice(0, 6).toUpperCase()}</span>
+        {sourceBadge && (
+          <span className={`inline-flex items-center px-2 py-0.5 rounded-sm text-[10px] font-sans font-bold tracking-wider ${sourceBadge.bg} ${sourceBadge.text}`}>
+            {sourceBadge.label}
+          </span>
+        )}
+      </div>
       <div className="flex items-center gap-2">
         <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-sm text-[10px] font-sans font-semibold ${STATUS_BADGE[order.status].bg} ${STATUS_BADGE[order.status].text}`}>
           {order.status === "received" && <CheckCircle2 className="w-3 h-3" />}
@@ -132,7 +155,8 @@ const OrderCard = ({ order, onStatusChange, actionLabel, actionStatus }: OrderCa
       </button>
     )}
   </div>
-);
+  );
+};
 
 const KitchenDisplay = () => {
   const { user, role, loading, signOut } = useAuth();
@@ -141,11 +165,65 @@ const KitchenDisplay = () => {
   const [showCompleted, setShowCompleted] = useState(false);
   const [showRejected, setShowRejected] = useState(false);
   const [takingOrders, setTakingOrders] = useState(true);
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const alertIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pendingWebCountRef = useRef(0);
 
-  // Real-time Firestore listener
+  // Preload notification sound
+  useEffect(() => {
+    audioRef.current = new Audio("/sounds/order-notification.wav");
+    audioRef.current.volume = 0.8;
+  }, []);
+
+  const playNotificationSound = useCallback(() => {
+    if (!soundEnabled || !audioRef.current) return;
+    audioRef.current.currentTime = 0;
+    audioRef.current.play().catch(() => {});
+  }, [soundEnabled]);
+
+  // Repeating alert — plays every 5 seconds while pending web orders exist
+  useEffect(() => {
+    const pendingWebOrders = orders.filter(
+      (o) => o.status === "pending" && o.source === "web"
+    );
+
+    if (pendingWebOrders.length > 0 && soundEnabled) {
+      // Play immediately if new pending orders appeared
+      if (pendingWebOrders.length > pendingWebCountRef.current) {
+        playNotificationSound();
+        toast.info(
+          `🔔 ${pendingWebOrders.length} web order${pendingWebOrders.length > 1 ? "s" : ""} waiting for approval!`,
+          { duration: 5000 }
+        );
+      }
+
+      // Clear old interval
+      if (alertIntervalRef.current) clearInterval(alertIntervalRef.current);
+
+      // Repeat every 5 seconds until accepted
+      alertIntervalRef.current = setInterval(() => {
+        playNotificationSound();
+      }, 5000);
+    } else {
+      // No pending web orders — stop repeating
+      if (alertIntervalRef.current) {
+        clearInterval(alertIntervalRef.current);
+        alertIntervalRef.current = null;
+      }
+    }
+
+    pendingWebCountRef.current = pendingWebOrders.length;
+
+    return () => {
+      if (alertIntervalRef.current) clearInterval(alertIntervalRef.current);
+    };
+  }, [orders, soundEnabled, playNotificationSound]);
+
+  // Real-time Firestore listener — exclude unpaid kiosk cash orders
   useEffect(() => {
     const unsubscribe = subscribeToOrders((liveOrders) => {
-      setOrders(liveOrders);
+      setOrders(liveOrders.filter((o) => o.payment_status !== "unpaid"));
     });
     return () => unsubscribe();
   }, []);
@@ -189,6 +267,7 @@ const KitchenDisplay = () => {
   };
 
   const countByStatus = (s: OrderStatus) => orders.filter((o) => o.status === s).length;
+  const pending = orders.filter((o) => o.status === "pending"); // web orders waiting for chef
   const received = orders.filter((o) => o.status === "received");
   const preparing = orders.filter((o) => o.status === "preparing");
   const ready = orders.filter((o) => o.status === "ready");
@@ -210,10 +289,13 @@ const KitchenDisplay = () => {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <button className="relative w-9 h-9 flex items-center justify-center rounded-sm hover:bg-muted active:scale-95 transition-all">
-              <Bell className="w-4 h-4" />
-              {countByStatus("pending") > 0 && (
-                <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-accent rounded-full" />
+            <button
+              onClick={() => { setSoundEnabled(!soundEnabled); toast.info(soundEnabled ? "Sound off" : "Sound on"); }}
+              className={`relative w-9 h-9 flex items-center justify-center rounded-sm hover:bg-muted active:scale-95 transition-all ${soundEnabled ? "" : "text-muted-foreground"}`}
+            >
+              {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+              {countByStatus("pending") > 0 && countByStatus("received") === 0 && (
+                <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-accent rounded-full animate-pulse" />
               )}
             </button>
             <button
@@ -263,6 +345,47 @@ const KitchenDisplay = () => {
             </div>
           ))}
         </div>
+
+        {/* Pending Web Orders — Chef must accept */}
+        {pending.length > 0 && (
+          <div className="bg-amber-50 border-2 border-amber-200 rounded-sm p-5">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <Globe className="w-5 h-5 text-amber-600" />
+                <h2 className="font-serif text-lg font-medium text-amber-900">
+                  New Online Orders ({pending.length})
+                </h2>
+              </div>
+              <button
+                onClick={handleAcceptAll}
+                className="px-4 py-2 bg-amber-600 text-white text-xs font-sans font-bold uppercase tracking-wider rounded-sm hover:bg-amber-700 active:scale-[0.97] transition-all"
+              >
+                Accept All
+              </button>
+            </div>
+            <div className="grid md:grid-cols-3 gap-4">
+              {pending.map((o) => (
+                <div key={o.id}>
+                  <OrderCard order={o} onStatusChange={handleStatusChange} />
+                  <div className="grid grid-cols-2 gap-2 mt-2">
+                    <button
+                      onClick={() => handleStatusChange(o.id, "received")}
+                      className="py-2.5 bg-emerald-600 text-white font-sans font-semibold text-xs uppercase tracking-wider rounded-sm hover:bg-emerald-700 active:scale-[0.97] transition-all"
+                    >
+                      Accept
+                    </button>
+                    <button
+                      onClick={() => handleStatusChange(o.id, "cancelled")}
+                      className="py-2.5 bg-red-600 text-white font-sans font-semibold text-xs uppercase tracking-wider rounded-sm hover:bg-red-700 active:scale-[0.97] transition-all"
+                    >
+                      Reject
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Kanban columns */}
         <div className="grid md:grid-cols-3 gap-6">

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { Phone, Menu, X, ShoppingBag, User, LogOut } from "lucide-react";
+import { Phone, Menu, X, ShoppingBag, User, LogOut, MapPin } from "lucide-react";
 import { useCart } from "@/context/CartContext";
 import { useAuth } from "@/context/AuthContext";
 
@@ -8,6 +8,7 @@ const navItems = [
   { label: "Menu", path: "/menu" },
   { label: "About", path: "/about" },
   { label: "Reviews", path: "/reviews" },
+  { label: "Track Order", path: "/orders" },
   { label: "Visit", path: "/contact" },
 ];
 
