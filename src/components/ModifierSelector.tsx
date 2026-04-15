@@ -30,7 +30,7 @@ const ModifierSelector = ({ groups, selected, onChange }: ModifierSelectorProps)
   };
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       {groups.map((group) => {
         const groupSelected = selected[group.id] || [];
         return (
@@ -44,7 +44,7 @@ const ModifierSelector = ({ groups, selected, onChange }: ModifierSelectorProps)
                 {group.maxSelect > 1 && ` · Up to ${group.maxSelect}`}
               </span>
             </div>
-            <div className="space-y-1.5">
+            <div className="flex flex-wrap gap-2">
               {group.options.map((option) => {
                 const isActive = groupSelected.includes(option.id);
                 return (
@@ -52,31 +52,16 @@ const ModifierSelector = ({ groups, selected, onChange }: ModifierSelectorProps)
                     key={option.id}
                     type="button"
                     onClick={() => toggleOption(group.id, option.id, group.maxSelect)}
-                    className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-sm border text-left text-sm transition-all active:scale-[0.98] ${
+                    className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-sm text-sm font-sans font-medium transition-all active:scale-95 ${
                       isActive
-                        ? "border-accent bg-accent/10 text-foreground"
-                        : "border-border bg-card text-muted-foreground hover:border-foreground/20 hover:text-foreground"
+                        ? "bg-accent text-accent-foreground shadow-sm"
+                        : "bg-muted text-muted-foreground hover:text-foreground"
                     }`}
                   >
-                    <div className="flex items-center gap-2.5">
-                      <div
-                        className={`w-5 h-5 rounded-${group.maxSelect === 1 ? "full" : "sm"} border-2 flex items-center justify-center shrink-0 transition-colors ${
-                          isActive
-                            ? "border-accent bg-accent text-accent-foreground"
-                            : "border-border"
-                        }`}
-                      >
-                        {isActive && <Check className="w-3 h-3" />}
-                      </div>
-                      <span className="font-sans">{option.name}</span>
-                    </div>
+                    {isActive && <Check className="w-3 h-3" />}
+                    {option.name}
                     {option.price > 0 && (
-                      <span className={`font-sans font-semibold text-xs shrink-0 ${isActive ? "text-accent" : "text-muted-foreground"}`}>
-                        +${option.price.toFixed(2)}
-                      </span>
-                    )}
-                    {option.price === 0 && (
-                      <span className="text-xs text-muted-foreground/60 font-sans">Free</span>
+                      <span className="opacity-60 text-xs">+${option.price.toFixed(2)}</span>
                     )}
                   </button>
                 );

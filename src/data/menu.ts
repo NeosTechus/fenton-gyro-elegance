@@ -23,6 +23,30 @@ import foodFalafelSalad from "@/assets/food-falafel-salad.jpg";
 import foodLoadedFries from "@/assets/food-loaded-fries.jpg";
 import foodAyran from "@/assets/food-ayran.jpg";
 import foodSoda from "@/assets/food-soda.jpg";
+import foodDonerGyro from "@/assets/food-doner-gyro.jpg";
+import foodBurritoGyro from "@/assets/food-burrito-gyro.jpg";
+import foodPhillyGyro from "@/assets/food-philly-gyro.jpg";
+import foodButteredChicken from "@/assets/food-buttered-chicken.jpg";
+import foodSpinachPie from "@/assets/food-spinach-pie.jpg";
+import foodRiceBalls from "@/assets/food-rice-balls.jpg";
+import foodGyroPizza from "@/assets/food-gyro-pizza.jpg";
+import foodPitaPizza from "@/assets/food-pita-pizza.jpg";
+import foodChickenTenders from "@/assets/food-chicken-tenders.jpg";
+import foodTiramisu from "@/assets/food-tiramisu.jpg";
+import foodChocolateCake from "@/assets/food-chocolate-cake.jpg";
+import foodCookies from "@/assets/food-cookies.jpg";
+import foodGreekSub from "@/assets/food-greek-sub.jpg";
+import foodAlGyro from "@/assets/food-al-gyro.jpg";
+import foodKidsMeal from "@/assets/food-kids-meal.jpg";
+import foodMedSalad from "@/assets/food-med-salad.jpg";
+import foodGingerBeer from "@/assets/food-ginger-beer.jpg";
+import foodTzatziki from "@/assets/food-tzatziki.jpg";
+import foodPitaBread from "@/assets/food-pita-bread.jpg";
+import foodRice from "@/assets/food-rice.jpg";
+import foodChips from "@/assets/food-chips.jpg";
+import foodCheeseFries from "@/assets/food-cheese-fries.jpg";
+import foodGreekFries from "@/assets/food-greek-fries.jpg";
+import foodStackedFries from "@/assets/food-stacked-fries.jpg";
 
 export interface ModifierOption {
   id: string;
@@ -34,7 +58,7 @@ export interface ModifierGroup {
   id: string;
   label: string;
   required: boolean;
-  maxSelect: number; // 1 = radio-style, >1 = multi-select
+  maxSelect: number;
   options: ModifierOption[];
 }
 
@@ -49,18 +73,15 @@ export interface MenuItem {
   modifiers?: ModifierGroup[];
 }
 
-// ---- Shared modifier groups (owner can reuse across items) ----
+// ── Shared modifiers ─────────────────────────────────────────────────────
 
-const proteinAdd: ModifierGroup = {
-  id: "protein-add",
-  label: "Add Protein",
+const doubleMeat: ModifierGroup = {
+  id: "double-meat",
+  label: "Extra Meat",
   required: false,
-  maxSelect: 3,
+  maxSelect: 1,
   options: [
-    { id: "extra-gyro", name: "Extra Gyro Meat", price: 2.99 },
-    { id: "extra-chicken", name: "Extra Chicken", price: 2.99 },
-    { id: "extra-lamb", name: "Extra Lamb", price: 3.49 },
-    { id: "extra-falafel", name: "Extra Falafel (3 pcs)", price: 1.99 },
+    { id: "double", name: "Double the Meat", price: 4.99 },
   ],
 };
 
@@ -68,83 +89,147 @@ const toppings: ModifierGroup = {
   id: "toppings",
   label: "Toppings",
   required: false,
-  maxSelect: 6,
+  maxSelect: 10,
   options: [
-    { id: "extra-feta", name: "Extra Feta Cheese", price: 1.00 },
-    { id: "extra-hummus", name: "Extra Hummus", price: 1.00 },
+    { id: "extra-feta", name: "Extra Feta Cheese", price: 0.89 },
+    { id: "extra-tzatziki", name: "Extra Tzatziki", price: 0.89 },
+    { id: "extra-hummus", name: "Extra Hummus", price: 0.89 },
+    { id: "extra-tahini", name: "Extra Tahini", price: 0.89 },
     { id: "jalapenos", name: "Jalapeños", price: 0.50 },
-    { id: "extra-tzatziki", name: "Extra Tzatziki", price: 0.75 },
-    { id: "extra-tahini", name: "Extra Tahini", price: 0.75 },
+    { id: "extra-onions", name: "Extra Onions", price: 0.00 },
+    { id: "extra-tomatoes", name: "Extra Tomatoes", price: 0.00 },
+    { id: "extra-cucumbers", name: "Extra Cucumbers", price: 0.00 },
+    { id: "extra-lettuce", name: "Extra Lettuce", price: 0.00 },
     { id: "hot-sauce", name: "Hot Sauce", price: 0.00 },
   ],
 };
 
-const sideUpgrade: ModifierGroup = {
-  id: "side-upgrade",
-  label: "Upgrade Side",
+const removeIngredients: ModifierGroup = {
+  id: "remove",
+  label: "Remove (Allergies / Preferences)",
+  required: false,
+  maxSelect: 10,
+  options: [
+    { id: "no-onions", name: "No Onions", price: 0.00 },
+    { id: "no-tomatoes", name: "No Tomatoes", price: 0.00 },
+    { id: "no-lettuce", name: "No Lettuce", price: 0.00 },
+    { id: "no-cucumbers", name: "No Cucumbers", price: 0.00 },
+    { id: "no-feta", name: "No Feta Cheese", price: 0.00 },
+    { id: "no-tzatziki", name: "No Tzatziki", price: 0.00 },
+    { id: "no-peppers", name: "No Peppers", price: 0.00 },
+    { id: "no-olives", name: "No Olives", price: 0.00 },
+    { id: "no-sauce", name: "No Sauce", price: 0.00 },
+    { id: "no-dairy", name: "No Dairy (Allergy)", price: 0.00 },
+    { id: "no-gluten", name: "Gluten Free Request", price: 0.00 },
+  ],
+};
+
+const makeItCombo: ModifierGroup = {
+  id: "combo",
+  label: "Make it a Combo",
   required: false,
   maxSelect: 1,
   options: [
-    { id: "side-loaded-fries", name: "Loaded Fries", price: 3.00 },
-    { id: "side-hummus", name: "Hummus & Pita", price: 2.00 },
-    { id: "side-soup", name: "Lentil Soup", price: 1.50 },
+    { id: "combo-fries-drink", name: "Add Fries/Tots + Fountain Drink", price: 4.99 },
   ],
 };
 
-const drinkSize: ModifierGroup = {
-  id: "drink-size",
-  label: "Size",
+const makeItMeal: ModifierGroup = {
+  id: "meal",
+  label: "Make it a Meal",
+  required: false,
+  maxSelect: 1,
+  options: [
+    { id: "meal-upgrade", name: "Add Fries/Tots + Drink", price: 4.99 },
+  ],
+};
+
+const friesOrTots: ModifierGroup = {
+  id: "fries-tots",
+  label: "Choose Style",
   required: true,
   maxSelect: 1,
   options: [
-    { id: "size-regular", name: "Regular", price: 0.00 },
-    { id: "size-large", name: "Large", price: 1.00 },
+    { id: "fries", name: "French Fries", price: 0.00 },
+    { id: "tots", name: "Tater Tots", price: 0.00 },
   ],
 };
 
+const drinkChoice: ModifierGroup = {
+  id: "drink-choice",
+  label: "Choose Drink",
+  required: false,
+  maxSelect: 1,
+  options: [
+    { id: "fountain", name: "Fountain Drink", price: 0.00 },
+    { id: "bottled-soda", name: "Bottled Soda", price: 1.00 },
+    { id: "ginger-beer", name: "Ginger Beer", price: 1.00 },
+  ],
+};
+
+// ── Menu Items (matching Fenton Gyro PDF menu) ───────────────────────────
+
 export const menuItems: MenuItem[] = [
-  // Gyros & Wraps
-  { id: "classic-gyro", name: "Classic Gyro", desc: "Seasoned lamb & beef, fresh veggies, tzatziki, warm pita", price: 9.99, category: "Gyros & Wraps", image: foodGyro, tag: "Signature", modifiers: [toppings, proteinAdd] },
-  { id: "chicken-gyro", name: "Chicken Gyro", desc: "Grilled chicken, crisp lettuce, tomatoes, house sauce", price: 9.99, category: "Gyros & Wraps", image: foodChickenGyro, modifiers: [toppings, proteinAdd] },
-  { id: "falafel-wrap", name: "Falafel Wrap", desc: "Crispy falafel, pickled turnips, tahini, fresh herbs", price: 8.99, category: "Gyros & Wraps", image: foodFalafel, modifiers: [toppings] },
-  { id: "lamb-shawarma", name: "Lamb Shawarma Wrap", desc: "Slow-roasted lamb, garlic sauce, pickles, fresh herbs in warm pita", price: 11.99, category: "Gyros & Wraps", image: foodLambShawarma, tag: "Popular", modifiers: [toppings, proteinAdd] },
-  { id: "chicken-shawarma-wrap", name: "Chicken Shawarma Wrap", desc: "Marinated grilled chicken, garlic sauce, pickles, lettuce in pita", price: 10.99, category: "Gyros & Wraps", image: foodChickenShawarmaWrap, modifiers: [toppings, proteinAdd] },
 
-  // Plates
-  { id: "kofta-plate", name: "Beef Kofta Plate", desc: "Seasoned beef kofta kebabs over rice with grilled vegetables and tahini", price: 14.99, category: "Plates", image: foodKofta, tag: "Chef's Pick", modifiers: [toppings, sideUpgrade] },
-  { id: "falafel-plate", name: "Falafel Plate", desc: "Six crispy falafels with tahini, pickles, salad, hummus, and warm pita", price: 11.99, category: "Plates", image: foodFalafelPlate, modifiers: [toppings, sideUpgrade] },
-  { id: "chicken-shawarma-plate", name: "Chicken Shawarma Plate", desc: "Grilled chicken shawarma over seasoned rice with salad and garlic sauce", price: 13.99, category: "Plates", image: foodShawarmaBowl, modifiers: [toppings, sideUpgrade] },
-  { id: "lamb-shawarma-plate", name: "Lamb Shawarma Plate", desc: "Tender lamb shawarma over rice with hummus, salad, and pita", price: 15.99, category: "Plates", image: foodLambShawarma, tag: "Popular", modifiers: [toppings, sideUpgrade] },
+  // ── GYROS ────────────────────────────────────────────────────────────
+  { id: "chicken-gyro", name: "Chicken Gyro", desc: "Grilled chicken, feta cheese crumbles, lettuce, tomatoes, red onions & housemade tzatziki sauce", price: 9.99, category: "Gyros", image: foodChickenGyro, tag: "Popular", modifiers: [toppings, removeIngredients, doubleMeat, makeItCombo] },
+  { id: "traditional-gyro", name: "Traditional Gyro", desc: "Gyro slices, lettuce, tomatoes, red onions & feta cheese crumbles on lepina bread", price: 10.99, category: "Gyros", image: foodGyro, tag: "Signature", modifiers: [toppings, removeIngredients, doubleMeat, makeItCombo] },
+  { id: "doner-gyro", name: "Döner Gyro", desc: "Gyro slices, lettuce, tomatoes, red onions, feta cheese crumbles & housemade tzatziki sauce on pita bread", price: 10.99, category: "Gyros", image: foodDonerGyro, modifiers: [toppings, removeIngredients, doubleMeat, makeItCombo] },
+  { id: "falafel-gyro", name: "Falafel Gyro", desc: "Falafel fritters, lettuce, tomatoes, onions, cucumber & housemade tzatziki sauce", price: 10.99, category: "Gyros", image: foodFalafel, modifiers: [toppings, removeIngredients, makeItCombo] },
+  { id: "greek-sub", name: "Greek Sub/Gyro", desc: "Gyro slices or grilled chicken, lettuce, tomatoes, red onion & feta cheese on french bread", price: 10.99, category: "Gyros", image: foodGreekSub, modifiers: [toppings, removeIngredients, doubleMeat, makeItCombo] },
+  { id: "burrito-gyro", name: "Burrito Gyro", desc: "Gyro slices, basmati rice, lettuce, tomatoes, onion and tzatziki sauce on a wheat tortilla", price: 10.99, category: "Gyros", image: foodBurritoGyro, modifiers: [toppings, removeIngredients, doubleMeat, makeItCombo] },
+  { id: "philly-gyro", name: "Philly Gyro", desc: "Topped with Gyro slices, grilled onions, peppers and provolone cheese", price: 10.99, category: "Gyros", image: foodPhillyGyro, modifiers: [toppings, removeIngredients, doubleMeat, makeItCombo] },
+  { id: "al-gyro", name: "Al Gyro", desc: "Gyro slices, peppers, onions, provolone cheese drizzled with Al sauce", price: 10.99, category: "Gyros", image: foodAlGyro, modifiers: [toppings, removeIngredients, doubleMeat, makeItCombo] },
 
-  // Bowls
-  { id: "gyro-bowl", name: "Gyro Bowl", desc: "Gyro meat over seasoned rice, salad, tzatziki, pita on the side", price: 12.99, category: "Bowls", image: foodGyroBowl, tag: "Popular", modifiers: [toppings, proteinAdd] },
-  { id: "chicken-bowl", name: "Chicken Shawarma Bowl", desc: "Marinated chicken, hummus, tabbouleh, pickles over rice", price: 12.99, category: "Bowls", image: foodShawarmaBowl, modifiers: [toppings, proteinAdd] },
-  { id: "falafel-bowl", name: "Falafel Bowl", desc: "Crispy falafel over rice with hummus, pickles, tahini, and fresh veggies", price: 11.99, category: "Bowls", image: foodFalafelPlate, modifiers: [toppings] },
+  // ── BOWLS ────────────────────────────────────────────────────────────
+  { id: "gyro-bowl", name: "Gyro Bowl", desc: "Gyro slices, lettuce, tomatoes and onions over basmati rice & drizzled with sriracha ranch", price: 11.99, category: "Bowls", image: foodGyroBowl, tag: "Popular", modifiers: [toppings, removeIngredients, doubleMeat] },
+  { id: "chicken-bowl", name: "Chicken Bowl", desc: "Grilled chicken, chickpeas, onions, tomatoes, cucumbers & tzatziki over basmati rice", price: 11.99, category: "Bowls", image: foodShawarmaBowl, modifiers: [toppings, removeIngredients, doubleMeat] },
+  { id: "falafel-bowl", name: "Falafel Bowl", desc: "Falafel fritters, chickpeas, onions, tomatoes, cucumber and feta cheese and tzatziki sauce served over rice", price: 11.99, category: "Bowls", image: foodFalafelPlate, modifiers: [toppings, removeIngredients] },
+  { id: "buttered-chicken", name: "Buttered Chicken", desc: "Chunks of white meat chicken simmered in a creamy saffron curry sauce served over rice", price: 12.99, category: "Bowls", image: foodButteredChicken, tag: "New", modifiers: [toppings, removeIngredients] },
 
-  // Salads
-  { id: "gyro-salad", name: "Gyro Salad", desc: "Mixed greens, gyro meat, feta, olives, peppers, house vinaigrette", price: 11.99, category: "Salads", image: foodGyroSalad },
-  { id: "fattoush-salad", name: "Fattoush Salad", desc: "Crispy pita chips, fresh vegetables, pomegranate, sumac dressing", price: 9.99, category: "Salads", image: foodFattoush },
-  { id: "falafel-salad", name: "Falafel Salad", desc: "Crispy falafel over mixed greens with chickpeas, tomatoes, tahini dressing", price: 10.99, category: "Salads", image: foodFalafelSalad },
+  // ── SALADS ───────────────────────────────────────────────────────────
+  { id: "gyro-salad", name: "Gyro Salad", desc: "Your choice of Gyro slices or grilled chicken, mixed lettuce, feta, onions, tomatoes, cucumbers, olives, green peppers & tzatziki sauce", price: 12.99, category: "Salads", image: foodGyroSalad, modifiers: [removeIngredients, doubleMeat] },
+  { id: "mediterranean-salad", name: "Mediterranean Salad", desc: "Mixed lettuce, tomatoes, cucumbers, red onions, green peppers, feta cheese & greek vinaigrette", price: 10.99, category: "Salads", image: foodMedSalad, modifiers: [removeIngredients] },
+  { id: "falafel-salad", name: "Falafel Salad", desc: "2 Falafel fritters, lettuce, chopped greens, tomatoes, cucumbers, red cabbage, chickpeas, red onions & greek vinaigrette", price: 10.99, category: "Salads", image: foodFalafelSalad, modifiers: [removeIngredients] },
 
-  // Sides & Appetizers
-  { id: "hummus-pita", name: "Hummus & Pita", desc: "Silky chickpea hummus with olive oil, served with two warm pitas", price: 6.99, category: "Sides", image: foodHummus, tag: "Popular" },
-  { id: "baba-ganoush", name: "Baba Ganoush", desc: "Smoky roasted eggplant dip with tahini, lemon, olive oil, and warm pita", price: 7.49, category: "Sides", image: foodBabaGanoush },
-  { id: "grape-leaves", name: "Stuffed Grape Leaves", desc: "Hand-rolled grape leaves stuffed with seasoned rice and herbs (6 pcs)", price: 6.99, category: "Sides", image: foodGrapeLeaves },
-  { id: "lentil-soup", name: "Lentil Soup", desc: "Slow-simmered red lentils with cumin, lemon, warm spices", price: 5.49, category: "Sides", image: foodLentilSoup },
-  { id: "french-fries", name: "Seasoned Fries", desc: "Crispy fries with Mediterranean spice blend", price: 4.49, category: "Sides", image: foodFries },
-  { id: "loaded-fries", name: "Loaded Gyro Fries", desc: "Seasoned fries topped with gyro meat, feta cheese, and tzatziki", price: 8.99, category: "Sides", image: foodLoadedFries, tag: "Must Try" },
+  // ── APPETIZERS ───────────────────────────────────────────────────────
+  { id: "hummus-plate", name: "Hummus Plate", desc: "Roasted garlic hummus served with 2 sliced pitas", price: 6.99, category: "Appetizers", image: foodHummus, tag: "Popular", modifiers: [removeIngredients] },
+  { id: "tzatziki-dip", name: "Tzatziki Dip", desc: "Our Homemade Tzatziki Sauce with 2 slices of Pita Bread", price: 6.99, category: "Appetizers", image: foodTzatziki, modifiers: [removeIngredients] },
+  { id: "spinach-pie", name: "Spinach Pie", desc: "Spinach & feta cheese inside a flaky phyllo dough with tzatziki", price: 7.99, category: "Appetizers", image: foodSpinachPie, modifiers: [removeIngredients] },
+  { id: "falafel-appetizer", name: "Falafel Appetizer", desc: "Five falafel fritters served with our tzatziki sauce and a sliced pita", price: 6.99, category: "Appetizers", image: foodFalafelPlate, modifiers: [removeIngredients] },
+  { id: "grape-leaves", name: "Stuffed Grape Leaves", desc: "Grape leaves stuffed with vegetables & rice", price: 7.99, category: "Appetizers", image: foodGrapeLeaves, modifiers: [removeIngredients] },
+  { id: "beef-rice-balls", name: "Beef Rice Balls", desc: "4 rice balls with side of garlic sauce", price: 7.99, category: "Appetizers", image: foodRiceBalls, modifiers: [removeIngredients] },
 
-  // Desserts
-  { id: "baklava", name: "Chocolate Baklava", desc: "Flaky phyllo, walnuts, dark chocolate, honey syrup", price: 4.99, category: "Desserts", image: foodBaklava, tag: "Must Try" },
-  { id: "rice-pudding", name: "Rice Pudding", desc: "Creamy cinnamon-spiced rice pudding with pistachios", price: 4.49, category: "Desserts", image: foodRicePudding },
-  { id: "kunafa", name: "Kunafa", desc: "Golden crispy phyllo with melted cheese, drizzled with sweet syrup", price: 5.99, category: "Desserts", image: foodKunafa, tag: "Popular" },
+  // ── SIDES / EXTRAS ───────────────────────────────────────────────────
+  { id: "french-fries", name: "French Fries or Tots", desc: "Crispy fries or tater tots", price: 3.49, category: "Sides", image: foodFries, modifiers: [friesOrTots] },
+  { id: "cheese-fries", name: "Cheese Fries or Tots", desc: "Topped with nacho cheese", price: 4.49, category: "Sides", image: foodCheeseFries, modifiers: [friesOrTots] },
+  { id: "greek-fries", name: "Greek Fries or Tots", desc: "Topped with crumbled feta cheese", price: 4.49, category: "Sides", image: foodGreekFries, modifiers: [friesOrTots] },
+  { id: "stacked-fries", name: "Stacked Fries or Tots", desc: "Topped with nacho cheese & tzatziki", price: 4.99, category: "Sides", image: foodStackedFries, modifiers: [friesOrTots] },
+  { id: "loaded-gyro-fries", name: "Loaded Gyro Fries", desc: "Topped with Gyro slices, feta cheese, lettuce, tomatoes, onion & garlic sauce", price: 12.99, category: "Sides", image: foodLoadedFries, tag: "Must Try", modifiers: [removeIngredients] },
+  { id: "gyro-pizza", name: "Famous Gyro Pizza", desc: "Our signature gyro pizza", price: 8.99, category: "Sides", image: foodGyroPizza, modifiers: [removeIngredients] },
+  { id: "pita-pizza", name: "Pita Pizza (Cheese)", desc: "Cheese pizza on pita bread", price: 4.99, category: "Sides", image: foodPitaPizza, modifiers: [removeIngredients] },
+  { id: "chicken-tenders", name: "Chicken Tenders", desc: "Strips of white meat chicken, breaded and fried to a crispy golden brown & served with fries", price: 9.99, category: "Sides", image: foodChickenTenders, modifiers: [removeIngredients] },
+  { id: "lentil-soup", name: "Lentil Soup", desc: "Slow-simmered red lentils with cumin, lemon, warm spices", price: 3.49, category: "Sides", image: foodLentilSoup },
+  { id: "pita-bread", name: "Pita Bread", desc: "Warm pita bread", price: 1.79, category: "Sides", image: foodPitaBread },
+  { id: "rice-cup", name: "Rice (Cup)", desc: "Seasoned basmati rice", price: 2.49, category: "Sides", image: foodRice },
+  { id: "potato-chips", name: "Potato Chips", desc: "Crispy potato chips", price: 1.99, category: "Sides", image: foodChips },
+  { id: "extra-falafel", name: "Falafel Balls", desc: "Individual falafel balls", price: 0.89, category: "Sides", image: foodFalafel },
+  { id: "gyro-by-pound", name: "Gyro by the Pound", desc: "Gyro slices with tzatziki sauce & sliced pita bread", price: 14.99, category: "Sides", image: foodGyro, modifiers: [removeIngredients] },
 
-  // Drinks
-  { id: "mint-lemonade", name: "Mint Lemonade", desc: "Fresh-squeezed lemonade with mint leaves over ice", price: 3.99, category: "Drinks", image: foodMintLemonade, tag: "Refreshing", modifiers: [drinkSize] },
-  { id: "turkish-tea", name: "Turkish Tea", desc: "Traditional brewed Turkish tea served in a tulip glass", price: 2.49, category: "Drinks", image: foodTurkishTea },
-  { id: "ayran", name: "Ayran", desc: "Chilled salted yogurt drink, refreshing and traditional", price: 2.99, category: "Drinks", image: foodAyran, modifiers: [drinkSize] },
-  { id: "soda", name: "Fountain Soda", desc: "Coca-Cola, Sprite, or Fanta — your choice", price: 2.49, category: "Drinks", image: foodSoda, modifiers: [drinkSize] },
-  { id: "water", name: "Bottled Water", desc: "Chilled bottled water", price: 1.99, category: "Drinks", image: foodMintLemonade },
+  // ── KIDS ─────────────────────────────────────────────────────────────
+  { id: "kids-meal", name: "Kids Meal", desc: "Gyro slices with a side of our tzatziki sauce & sliced pita bread and drink", price: 7.99, category: "Kids", image: foodKidsMeal, modifiers: [removeIngredients] },
+
+  // ── DESSERTS ─────────────────────────────────────────────────────────
+  { id: "greek-baklava", name: "Greek Baklava", desc: "Thin layers of phyllo dough, topped with walnuts & pecans, and drizzled with pure honey", price: 3.49, category: "Desserts", image: foodBaklava, tag: "Popular" },
+  { id: "large-baklava", name: "Large Baklava", desc: "Generous portion of our famous baklava", price: 4.49, category: "Desserts", image: foodBaklava },
+  { id: "tiramisu", name: "Tiramisu", desc: "Mascarpone and lady fingers delicately soaked in espresso & topped with cocoa", price: 3.99, category: "Desserts", image: foodTiramisu },
+  { id: "chocolate-cake", name: "Chocolate Cake", desc: "3 Layers of fudgy chocolate filled with chocolate mousse", price: 3.49, category: "Desserts", image: foodChocolateCake },
+  { id: "cookies", name: "Cookies", desc: "Freshly baked cookies", price: 2.49, category: "Desserts", image: foodCookies },
+
+  // ── DRINKS ───────────────────────────────────────────────────────────
+  { id: "fountain-drink", name: "Fountain Drinks", desc: "Coca-Cola, Sprite, Fanta & more", price: 1.99, category: "Drinks", image: foodSoda },
+  { id: "bottled-soda", name: "Bottled Soda", desc: "Assorted bottled sodas", price: 2.99, category: "Drinks", image: foodSoda },
+  { id: "ginger-beer", name: "Ginger Beer", desc: "Refreshing ginger beer", price: 2.99, category: "Drinks", image: foodGingerBeer },
 ];
 
 export const categories = [...new Set(menuItems.map((i) => i.category))];

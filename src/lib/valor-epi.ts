@@ -43,11 +43,15 @@ const DEFAULT_EPIS: ValorEPI[] = [
 export function getEPIs(): ValorEPI[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw);
-    // First-run: seed with the configured Fenton Gyro terminals
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+    // First-run or empty: seed with the configured Fenton Gyro terminals
     saveEPIs(DEFAULT_EPIS);
     return DEFAULT_EPIS;
   } catch {
+    saveEPIs(DEFAULT_EPIS);
     return DEFAULT_EPIS;
   }
 }

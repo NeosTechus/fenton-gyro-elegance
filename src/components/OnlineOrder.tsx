@@ -5,29 +5,13 @@ import { toast } from "sonner";
 import { createValorCheckout } from "@/lib/valor-ecomm";
 import { createOrder } from "@/lib/orders";
 
-interface MenuItem {
-  id: string;
-  name: string;
-  desc: string;
-  price: number;
-  category: string;
-}
+import { menuItems as allMenuItems, categories as allCategories } from "@/data/menu";
 
-const menuItems: MenuItem[] = [
-  { id: "classic-gyro", name: "Classic Gyro", desc: "Seasoned lamb & beef, fresh veggies, tzatziki, warm pita", price: 9.99, category: "Gyros" },
-  { id: "chicken-gyro", name: "Chicken Gyro", desc: "Grilled chicken, crisp lettuce, tomatoes, house sauce", price: 9.99, category: "Gyros" },
-  { id: "falafel-wrap", name: "Falafel Wrap", desc: "Crispy falafel, pickled turnips, tahini, fresh herbs", price: 8.99, category: "Gyros" },
-  { id: "gyro-bowl", name: "Gyro Bowl", desc: "Gyro meat over seasoned rice, salad, tzatziki, pita on the side", price: 12.99, category: "Bowls" },
-  { id: "chicken-bowl", name: "Chicken Shawarma Bowl", desc: "Marinated chicken, hummus, tabbouleh, pickles over rice", price: 12.99, category: "Bowls" },
-  { id: "gyro-salad", name: "Gyro Salad", desc: "Mixed greens, gyro meat, feta, olives, peppers, house vinaigrette", price: 11.99, category: "Salads" },
-  { id: "hummus-pita", name: "Hummus & Pita", desc: "Silky chickpea hummus with olive oil, served with two warm pitas", price: 6.99, category: "Sides" },
-  { id: "lentil-soup", name: "Lentil Soup", desc: "Slow-simmered red lentils with cumin, lemon, warm spices", price: 5.49, category: "Sides" },
-  { id: "french-fries", name: "Seasoned Fries", desc: "Crispy fries with Mediterranean spice blend", price: 4.49, category: "Sides" },
-  { id: "baklava", name: "Chocolate Baklava", desc: "Flaky phyllo, walnuts, dark chocolate, honey syrup", price: 4.99, category: "Desserts" },
-  { id: "rice-pudding", name: "Rice Pudding", desc: "Creamy cinnamon-spiced rice pudding with pistachios", price: 4.49, category: "Desserts" },
-];
-
-const categories = [...new Set(menuItems.map((i) => i.category))];
+// Use the shared menu data — show a curated selection for online ordering
+const menuItems = allMenuItems.filter((i) =>
+  ["Gyros", "Bowls", "Salads", "Appetizers", "Sides", "Desserts", "Drinks", "Kids"].includes(i.category)
+);
+const categories = allCategories;
 
 type OrderType = "pickup" | "delivery";
 

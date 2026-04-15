@@ -24,7 +24,7 @@ import heroImage from "@/assets/hero-food.jpg";
 import ModifierSelector, { getModifiersTotal, getSelectedModifierNames, getSelectedModifierDetails } from "@/components/ModifierSelector";
 import { useAuth } from "@/context/AuthContext";
 
-type KioskStep = "welcome" | "order-type" | "categories" | "items" | "item-detail" | "cart";
+type KioskStep = "welcome" | "order-type" | "categories" | "items" | "item-detail" | "cart" | "customer-info";
 type OrderType = "dine-in" | "take-out";
 
 interface CartItem {
@@ -39,6 +39,10 @@ const KioskPage = () => {
   const { signOut } = useAuth();
   const [step, setStep] = useState<KioskStep>("welcome");
   const [orderType, setOrderType] = useState<OrderType | null>(null);
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [customerEmail, setCustomerEmail] = useState("");
+  const [customerPhone, setCustomerPhone] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null);
   const [itemQty, setItemQty] = useState(1);
@@ -47,7 +51,17 @@ const KioskPage = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedMods, setSelectedMods] = useState<Record<string, string[]>>({});
   const [epis] = useState<ValorEPI[]>(() => getEPIs());
-  const [selectedEpi, setSelectedEpi] = useState<string>(epis[0]?.wsUrl || "");
+  const [selectedEpi, setSelectedEpi] = useState<string>(() => {
+    // Each tablet remembers its assigned terminal
+    const saved = localStorage.getItem("kiosk_terminal");
+    if (saved && epis.some((e) => e.wsUrl === saved)) return saved;
+    return epis[0]?.wsUrl || "";
+  });
+
+  const assignTerminal = (wsUrl: string) => {
+    setSelectedEpi(wsUrl);
+    localStorage.setItem("kiosk_terminal", wsUrl);
+  };
 
   const totalItems = cart.reduce((s, c) => s + c.qty, 0);
   const totalPrice = cart.reduce((s, c) => s + (c.item.price + c.modifiersTotal) * c.qty, 0);
@@ -127,9 +141,9 @@ const KioskPage = () => {
 
   const saveKioskOrder = async (payment: "card" | "cash", extra?: { auth_code?: string; masked_pan?: string; rrn?: string }) => {
     await createOrder({
-      customer_name: orderType === "dine-in" ? "Dine-In Customer" : "Take-Out Customer",
-      customer_email: "",
-      customer_phone: "Kiosk Order",
+      customer_name: `${firstName.trim()} ${lastName.trim()}`.trim() || (orderType === "dine-in" ? "Dine-In Customer" : "Take-Out Customer"),
+      customer_email: customerEmail.trim(),
+      customer_phone: customerPhone.trim(),
       items: buildOrderItems(),
       total: totalPrice * 1.08,
       order_type: orderType || "dine-in",
@@ -179,6 +193,10 @@ const KioskPage = () => {
   const resetOrder = () => {
     setStep("welcome");
     setOrderType(null);
+    setFirstName("");
+    setLastName("");
+    setCustomerEmail("");
+    setCustomerPhone("");
     setSelectedCategory(null);
     setSelectedItem(null);
     setItemQty(1);
@@ -251,7 +269,7 @@ const KioskPage = () => {
           <div className="absolute bottom-4 right-4 z-20" onClick={(e) => e.stopPropagation()}>
             <select
               value={selectedEpi}
-              onChange={(e) => setSelectedEpi(e.target.value)}
+              onChange={(e) => assignTerminal(e.target.value)}
               className="bg-primary-foreground/10 text-primary-foreground/60 text-xs font-sans px-2 py-1.5 rounded-sm border border-primary-foreground/20 focus:outline-none"
             >
               {epis.map((epi) => (
@@ -572,24 +590,127 @@ const KioskPage = () => {
                     <span className="font-sans font-bold text-lg text-accent">${(totalPrice * 1.08).toFixed(2)}</span>
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <button onClick={handleCheckout} disabled={isProcessing} className="py-4 bg-accent text-accent-foreground font-sans font-semibold text-base uppercase tracking-wider rounded-sm flex items-center justify-center gap-3 hover:opacity-90 active:scale-[0.97] transition-all shadow-lg shadow-accent/20 disabled:opacity-50 disabled:cursor-not-allowed">
-                    {isProcessing ? (<><Loader2 className="w-5 h-5 animate-spin" /> Processing…</>) : (<><CreditCard className="w-5 h-5" /> Tap to Pay</>)}
-                  </button>
+                <div className="grid grid-cols-1 gap-3">
                   <button
-                    onClick={async () => {
-                      await saveKioskOrder("cash");
-                      toast.success("Order placed! Please pay at the counter.", { duration: 1000 });
-                      resetOrder();
-                    }}
-                    disabled={isProcessing}
-                    className="py-4 bg-primary text-primary-foreground font-sans font-semibold text-base uppercase tracking-wider rounded-sm flex items-center justify-center gap-3 hover:opacity-90 active:scale-[0.97] transition-all shadow-lg shadow-primary/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                    onClick={() => setStep("customer-info")}
+                    className="py-4 bg-accent text-accent-foreground font-sans font-semibold text-base uppercase tracking-wider rounded-sm flex items-center justify-center gap-3 hover:opacity-90 active:scale-[0.97] transition-all shadow-lg shadow-accent/20"
                   >
-                    <Banknote className="w-5 h-5" /> Pay at Counter
+                    Proceed to Checkout — ${(totalPrice * 1.08).toFixed(2)}
                   </button>
                 </div>
-                <p className="text-center text-xs text-muted-foreground mt-3">Total: ${(totalPrice * 1.08).toFixed(2)}</p>
               </>
+            )}
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  // ===== STEP 7: CUSTOMER INFO =====
+  if (step === "customer-info") {
+    return (
+      <div className="min-h-screen bg-background flex flex-col">
+        <header className="sticky top-0 z-40 bg-background/95 backdrop-blur-sm border-b border-border">
+          <div className="flex items-center justify-between px-6 py-3">
+            <button onClick={() => setStep("cart")} className="flex items-center gap-2 text-sm font-sans font-semibold text-muted-foreground hover:text-foreground active:scale-95 transition-all">
+              <ArrowLeft className="w-4 h-4" /> Back to Cart
+            </button>
+            <p className="font-serif text-lg font-medium text-foreground">Checkout</p>
+            <div className="w-16" />
+          </div>
+        </header>
+        <main className="flex-1 p-6 animate-fade-up opacity-0">
+          <div className="max-w-md mx-auto">
+            <div className="text-center mb-8">
+              <h2 className="font-serif text-2xl font-medium mb-2">Your Details</h2>
+              <p className="text-sm text-muted-foreground">So we can notify you when your order is ready</p>
+            </div>
+
+            <div className="space-y-4 mb-8">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-sans font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">First Name *</label>
+                  <input
+                    type="text"
+                    value={firstName}
+                    onChange={(e) => setFirstName(e.target.value)}
+                    placeholder="First name"
+                    autoFocus
+                    className="w-full px-4 py-3.5 bg-card border border-border rounded-sm text-sm font-sans text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-accent/50"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-sans font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Last Name</label>
+                  <input
+                    type="text"
+                    value={lastName}
+                    onChange={(e) => setLastName(e.target.value)}
+                    placeholder="Last name"
+                    className="w-full px-4 py-3.5 bg-card border border-border rounded-sm text-sm font-sans text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-accent/50"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-sans font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Phone Number</label>
+                <input
+                  type="tel"
+                  value={customerPhone}
+                  onChange={(e) => setCustomerPhone(e.target.value)}
+                  placeholder="(636) 000-0000"
+                  className="w-full px-4 py-3.5 bg-card border border-border rounded-sm text-sm font-sans text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-accent/50"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-sans font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Email (optional)</label>
+                <input
+                  type="email"
+                  value={customerEmail}
+                  onChange={(e) => setCustomerEmail(e.target.value)}
+                  placeholder="you@example.com"
+                  className="w-full px-4 py-3.5 bg-card border border-border rounded-sm text-sm font-sans text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-accent/50"
+                />
+              </div>
+            </div>
+
+            {/* Order Summary */}
+            <div className="bg-card border border-border rounded-sm p-4 mb-6">
+              <div className="flex justify-between text-sm mb-1">
+                <span className="text-muted-foreground">{totalItems} items</span>
+                <span className="font-semibold">${totalPrice.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between text-sm mb-2">
+                <span className="text-muted-foreground">Tax</span>
+                <span className="font-semibold">${(totalPrice * 0.08).toFixed(2)}</span>
+              </div>
+              <div className="border-t border-border pt-2 flex justify-between">
+                <span className="font-sans font-bold">Total</span>
+                <span className="font-sans font-bold text-accent">${(totalPrice * 1.08).toFixed(2)}</span>
+              </div>
+            </div>
+
+            {/* Payment buttons */}
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={handleCheckout}
+                disabled={isProcessing || !firstName.trim()}
+                className="py-4 bg-accent text-accent-foreground font-sans font-semibold text-base uppercase tracking-wider rounded-sm flex items-center justify-center gap-3 hover:opacity-90 active:scale-[0.97] transition-all shadow-lg shadow-accent/20 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isProcessing ? (<><Loader2 className="w-5 h-5 animate-spin" /> Processing…</>) : (<><CreditCard className="w-5 h-5" /> Tap to Pay</>)}
+              </button>
+              <button
+                onClick={async () => {
+                  await saveKioskOrder("cash");
+                  toast.success("Order placed! Please pay at the counter.", { duration: 1000 });
+                  resetOrder();
+                }}
+                disabled={isProcessing || !firstName.trim()}
+                className="py-4 bg-primary text-primary-foreground font-sans font-semibold text-base uppercase tracking-wider rounded-sm flex items-center justify-center gap-3 hover:opacity-90 active:scale-[0.97] transition-all shadow-lg shadow-primary/20 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Banknote className="w-5 h-5" /> Pay at Counter
+              </button>
+            </div>
+            {!firstName.trim() && (
+              <p className="text-center text-xs text-destructive mt-2">Please enter your first name</p>
             )}
           </div>
         </main>

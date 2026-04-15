@@ -336,13 +336,14 @@ const POSPage = () => {
                         onClick={() => setExpandedUnpaidOrder(isExpanded ? null : order.id)}
                         className="w-full px-3 py-2.5 flex items-center justify-between hover:bg-amber-50 transition-colors text-left"
                       >
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-mono text-xs font-bold text-amber-700">{tag}</span>
                           <span className="px-1.5 py-0.5 rounded text-[8px] font-bold bg-purple-100 text-purple-700">KIOSK</span>
+                          <span className="text-sm font-bold text-amber-900">{order.customer_name}</span>
                           <span className="text-[10px] text-amber-600">
-                            {order.items.length} item{order.items.length > 1 ? "s" : ""}
+                            · {order.items.length} item{order.items.length > 1 ? "s" : ""}
                           </span>
-                          <span className="text-[10px] text-muted-foreground">{timeAgo()}</span>
+                          <span className="text-[10px] text-muted-foreground">· {timeAgo()}</span>
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="text-sm font-bold text-amber-800">${order.total.toFixed(2)}</span>

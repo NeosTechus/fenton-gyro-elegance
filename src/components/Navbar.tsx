@@ -25,8 +25,9 @@ const Navbar = () => {
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 bg-background/90 backdrop-blur-sm border-b border-border">
       <div className="max-w-6xl mx-auto flex items-center justify-between px-6 py-4">
-        <Link to="/" className="font-serif text-2xl font-semibold tracking-tight text-foreground">
-          Fenton Gyro
+        <Link to="/" className="flex items-center gap-2">
+          <img src="/logo.png" alt="Fenton Gyro" className="h-14 w-auto" />
+          <span className="font-serif text-2xl font-semibold tracking-tight text-foreground">Fenton Gyro</span>
         </Link>
 
         {/* Desktop */}

@@ -10,6 +10,7 @@ import {
   Loader2,
   Settings,
   Monitor,
+  RotateCcw,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
@@ -20,6 +21,7 @@ import {
   removeEPI,
   updateEPI,
   refreshAllStatuses,
+  resetToDefaults,
 } from "@/lib/valor-epi";
 
 const SettingsPage = () => {
@@ -105,18 +107,31 @@ const SettingsPage = () => {
                 Manage Valor POS terminal endpoints (EPIs)
               </p>
             </div>
-            <button
-              onClick={handleRefresh}
-              disabled={checking || epis.length === 0}
-              className="flex items-center gap-1.5 px-3 py-2 text-xs font-sans font-semibold border border-border rounded-sm hover:bg-muted active:scale-95 transition-all disabled:opacity-50"
-            >
-              {checking ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              ) : (
-                <RefreshCw className="w-3.5 h-3.5" />
-              )}
-              Check Status
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  const defaults = resetToDefaults();
+                  setEpis(defaults);
+                  toast.success("Terminals reset to defaults");
+                }}
+                className="flex items-center gap-1.5 px-3 py-2 text-xs font-sans font-semibold border border-border rounded-sm hover:bg-muted active:scale-95 transition-all"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                Reset
+              </button>
+              <button
+                onClick={handleRefresh}
+                disabled={checking || epis.length === 0}
+                className="flex items-center gap-1.5 px-3 py-2 text-xs font-sans font-semibold border border-border rounded-sm hover:bg-muted active:scale-95 transition-all disabled:opacity-50"
+              >
+                {checking ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="w-3.5 h-3.5" />
+                )}
+                Check Status
+              </button>
+            </div>
           </div>
 
           {/* EPI list */}
