@@ -77,8 +77,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     formParams.append("epi", epi);
     formParams.append("epage", "1");
     formParams.append("redirect_url", `${redirectUrl}?orderId=${orderId}`);
-    formParams.append("phone", phone || "");
-    formParams.append("email", email || "");
+    if (phone) formParams.append("phone", phone);
+    // Don't send email — prevents Valor from sending invoice email
+    // Customer gets redirected directly to payment page instead
     formParams.append("invoice_no", invoiceNumber || orderId);
     formParams.append("product", productDescription || "Order");
     formParams.append("descriptor", "Fenton Gyro");
