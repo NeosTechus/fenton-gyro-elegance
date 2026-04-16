@@ -11,8 +11,10 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
  *   Prod: https://securelink.valorpaytech.com:4430/
  */
 
-const VALOR_API_URL =
-  process.env.VALOR_API_URL || "https://securelinktest.valorpaytech.com:4430/";
+// Set VALOR_API_URL in environment variables:
+//   Test: https://securelinktest.valorpaytech.com:4430/
+//   Prod: https://securelink.valorpaytech.com:4430/
+const VALOR_API_URL = process.env.VALOR_API_URL;
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // CORS
@@ -26,6 +28,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
+  }
+
+  // Validate config
+  if (!VALOR_API_URL) {
+    return res.status(500).json({
+      error: "VALOR_API_URL not configured. Set it in Vercel env vars.",
+    });
   }
 
   // Validate secrets
