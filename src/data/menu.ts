@@ -172,9 +172,9 @@ const drinkChoice: ModifierGroup = {
 export const menuItems: MenuItem[] = [
 
   // ── GYROS ────────────────────────────────────────────────────────────
-  { id: "chicken-gyro", name: "Chicken Gyro", desc: "Grilled chicken, feta cheese crumbles, lettuce, tomatoes, red onions & housemade tzatziki sauce", price: 9.99, category: "Gyros", image: foodChickenGyro, tag: "Popular", modifiers: [toppings, removeIngredients, doubleMeat, makeItCombo] },
-  { id: "traditional-gyro", name: "Traditional Gyro", desc: "Gyro slices, lettuce, tomatoes, red onions & feta cheese crumbles on lepina bread", price: 10.99, category: "Gyros", image: foodGyro, tag: "Signature", modifiers: [toppings, removeIngredients, doubleMeat, makeItCombo] },
-  { id: "doner-gyro", name: "Döner Gyro", desc: "Gyro slices, lettuce, tomatoes, red onions, feta cheese crumbles & housemade tzatziki sauce on pita bread", price: 10.99, category: "Gyros", image: foodDonerGyro, modifiers: [toppings, removeIngredients, doubleMeat, makeItCombo] },
+  { id: "chicken-gyro", name: "Chicken Gyro", desc: "Grilled chicken, feta cheese crumbles, lettuce, tomatoes, red onions & housemade tzatziki sauce", price: 10.99, category: "Gyros", image: foodChickenGyro, tag: "Popular", modifiers: [toppings, removeIngredients, doubleMeat, makeItCombo] },
+  { id: "traditional-gyro", name: "Traditional Gyro", desc: "Gyro slices, lettuce, tomatoes, red onions, feta cheese crumbles & housemade tzatziki sauce on pita bread", price: 10.99, category: "Gyros", image: foodGyro, tag: "Signature", modifiers: [toppings, removeIngredients, doubleMeat, makeItCombo] },
+  { id: "doner-gyro", name: "Döner Gyro", desc: "Gyro slices, lettuce, tomatoes, red onions & feta cheese crumbles on lepina bread", price: 12.99, category: "Gyros", image: foodDonerGyro, modifiers: [toppings, removeIngredients, doubleMeat, makeItCombo] },
   { id: "falafel-gyro", name: "Falafel Gyro", desc: "Falafel fritters, lettuce, tomatoes, onions, cucumber & housemade tzatziki sauce", price: 10.99, category: "Gyros", image: foodFalafel, modifiers: [toppings, removeIngredients, makeItCombo] },
   { id: "greek-sub", name: "Greek Sub/Gyro", desc: "Gyro slices or grilled chicken, lettuce, tomatoes, red onion & feta cheese on french bread", price: 10.99, category: "Gyros", image: foodGreekSub, modifiers: [toppings, removeIngredients, doubleMeat, makeItCombo] },
   { id: "burrito-gyro", name: "Burrito Gyro", desc: "Gyro slices, basmati rice, lettuce, tomatoes, onion and tzatziki sauce on a wheat tortilla", price: 10.99, category: "Gyros", image: foodBurritoGyro, modifiers: [toppings, removeIngredients, doubleMeat, makeItCombo] },
@@ -185,11 +185,11 @@ export const menuItems: MenuItem[] = [
   { id: "gyro-bowl", name: "Gyro Bowl", desc: "Gyro slices, lettuce, tomatoes and onions over basmati rice & drizzled with sriracha ranch", price: 11.99, category: "Bowls", image: foodGyroBowl, tag: "Popular", modifiers: [toppings, removeIngredients, doubleMeat] },
   { id: "chicken-bowl", name: "Chicken Bowl", desc: "Grilled chicken, chickpeas, onions, tomatoes, cucumbers & tzatziki over basmati rice", price: 11.99, category: "Bowls", image: foodShawarmaBowl, modifiers: [toppings, removeIngredients, doubleMeat] },
   { id: "falafel-bowl", name: "Falafel Bowl", desc: "Falafel fritters, chickpeas, onions, tomatoes, cucumber and feta cheese and tzatziki sauce served over rice", price: 11.99, category: "Bowls", image: foodFalafelPlate, modifiers: [toppings, removeIngredients] },
-  { id: "buttered-chicken", name: "Buttered Chicken", desc: "Chunks of white meat chicken simmered in a creamy saffron curry sauce served over rice", price: 12.99, category: "Bowls", image: foodButteredChicken, tag: "New", modifiers: [toppings, removeIngredients] },
+  { id: "buttered-chicken", name: "Buttered Chicken", desc: "Chunks of white meat chicken simmered in a creamy saffron curry sauce served over rice", price: 10.99, category: "Bowls", image: foodButteredChicken, tag: "New", modifiers: [toppings, removeIngredients] },
 
   // ── SALADS ───────────────────────────────────────────────────────────
   { id: "gyro-salad", name: "Gyro Salad", desc: "Your choice of Gyro slices or grilled chicken, mixed lettuce, feta, onions, tomatoes, cucumbers, olives, green peppers & tzatziki sauce", price: 12.99, category: "Salads", image: foodGyroSalad, modifiers: [removeIngredients, doubleMeat] },
-  { id: "mediterranean-salad", name: "Mediterranean Salad", desc: "Mixed lettuce, tomatoes, cucumbers, red onions, green peppers, feta cheese & greek vinaigrette", price: 10.99, category: "Salads", image: foodMedSalad, modifiers: [removeIngredients] },
+  { id: "mediterranean-salad", name: "Mediterranean Salad", desc: "Mixed lettuce, tomatoes, cucumbers, red onions, green peppers, feta cheese & greek vinaigrette", price: 9.99, category: "Salads", image: foodMedSalad, modifiers: [removeIngredients] },
   { id: "falafel-salad", name: "Falafel Salad", desc: "2 Falafel fritters, lettuce, chopped greens, tomatoes, cucumbers, red cabbage, chickpeas, red onions & greek vinaigrette", price: 10.99, category: "Salads", image: foodFalafelSalad, modifiers: [removeIngredients] },
 
   // ── APPETIZERS ───────────────────────────────────────────────────────

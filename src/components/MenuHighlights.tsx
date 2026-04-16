@@ -2,12 +2,12 @@ import { Link } from "react-router-dom";
 import { useScrollReveal } from "@/hooks/useScrollReveal";
 
 const items = [
-  { name: "Classic Gyro", desc: "Seasoned lamb & beef, fresh veggies, tzatziki, warm pita", price: "$9.99", tag: "Signature" },
-  { name: "Chicken Gyro", desc: "Grilled chicken, crisp lettuce, tomatoes, house sauce", price: "$9.99", tag: null },
-  { name: "Hummus & Pita", desc: "Silky chickpea hummus drizzled with olive oil, served with two warm pitas", price: "$6.99", tag: "Popular" },
-  { name: "Gyro Salad", desc: "Mixed greens, gyro meat, feta, olives, peppers, house vinaigrette", price: "$11.99", tag: null },
-  { name: "Lentil Soup", desc: "Slow-simmered red lentils with cumin, lemon, and warm spices", price: "$5.49", tag: null },
-  { name: "Chocolate Baklava", desc: "Flaky phyllo layers, walnuts, dark chocolate, honey syrup", price: "$4.99", tag: "Must Try" },
+  { name: "Traditional Gyro", desc: "Gyro slices, lettuce, tomatoes, red onions, feta cheese crumbles & housemade tzatziki sauce on pita bread", price: "$10.99", tag: "Signature" },
+  { name: "Chicken Gyro", desc: "Grilled chicken, feta cheese crumbles, lettuce, tomatoes, red onions & housemade tzatziki sauce", price: "$10.99", tag: "Popular" },
+  { name: "Hummus Plate", desc: "Roasted garlic hummus served with 2 sliced pitas", price: "$6.99", tag: "Popular" },
+  { name: "Gyro Salad", desc: "Your choice of Gyro slices or grilled chicken, mixed lettuce, feta, onions, tomatoes, cucumbers, olives, green peppers & tzatziki sauce", price: "$12.99", tag: null },
+  { name: "Lentil Soup", desc: "Slow-simmered red lentils with cumin, lemon, and warm spices", price: "$3.49", tag: null },
+  { name: "Greek Baklava", desc: "Thin layers of phyllo dough, topped with walnuts & pecans, and drizzled with pure honey", price: "$3.49", tag: "Must Try" },
 ];
 
 const MenuHighlights = () => {
