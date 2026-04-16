@@ -16,8 +16,8 @@ service cloud.firestore {
       // Only authenticated users can list/query orders (kitchen, admin, POS)
       allow list: if request.auth != null;
 
-      // Only authenticated users can create orders
-      allow create: if request.auth != null;
+      // Anyone can create orders (website customers may not be logged in)
+      allow create: if true;
 
       // Only authenticated users can update order status
       allow update: if request.auth != null;
