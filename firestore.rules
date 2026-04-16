@@ -10,14 +10,21 @@ service cloud.firestore {
 
     // Orders
     match /orders/{orderId} {
-      // Anyone can read a single order (for customer tracking page)
+      // Anyone can read a single order (for customer tracking)
       allow get: if true;
 
       // Only authenticated users can list/query orders (kitchen, admin, POS)
       allow list: if request.auth != null;
 
-      // Anyone can create orders (website customers may not be logged in)
-      allow create: if true;
+      // Anyone can create orders but must have required fields and valid data
+      allow create: if
+        request.resource.data.keys().hasAll(['customer_name', 'items', 'total', 'status', 'source']) &&
+        request.resource.data.total is number &&
+        request.resource.data.total >= 0 &&
+        request.resource.data.total <= 10000 &&
+        request.resource.data.items is list &&
+        request.resource.data.items.size() > 0 &&
+        request.resource.data.source in ['pos', 'kiosk', 'web'];
 
       // Only authenticated users can update order status
       allow update: if request.auth != null;

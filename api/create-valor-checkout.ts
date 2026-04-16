@@ -64,6 +64,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ error: "amount and redirectUrl are required" });
     }
 
+    // Validate amount format (must be a positive number with up to 2 decimal places)
+    if (!/^\d+(\.\d{1,2})?$/.test(amount) || parseFloat(amount) <= 0 || parseFloat(amount) > 10000) {
+      return res.status(400).json({ error: "Invalid amount" });
+    }
+
+    // Validate redirectUrl is from our domain
+    try {
+      const url = new URL(redirectUrl);
+      if (!url.hostname.includes("fentongyro") && !url.hostname.includes("vercel.app") && !url.hostname.includes("localhost")) {
+        return res.status(400).json({ error: "Invalid redirect URL" });
+      }
+    } catch {
+      return res.status(400).json({ error: "Invalid redirect URL" });
+    }
+
+    // Sanitize text inputs
+    const sanitize = (str: string | undefined) => str ? str.replace(/[<>]/g, "").slice(0, 200) : "";
+
     const orderId = `WEB-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
     // Build ePage request — matches Valor SDK epage_api_v2.php exactly
@@ -80,10 +98,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (phone) formParams.append("phone", phone);
     // Don't send email — prevents Valor from sending invoice email
     // Customer gets redirected directly to payment page instead
-    formParams.append("invoice_no", invoiceNumber || orderId);
-    formParams.append("product", productDescription || "Order");
+    formParams.append("invoice_no", sanitize(invoiceNumber) || orderId);
+    formParams.append("product", sanitize(productDescription) || "Order");
     formParams.append("descriptor", "Fenton Gyro");
-    formParams.append("customer_name", customerName || "");
+    formParams.append("customer_name", sanitize(customerName));
 
     const valorResponse = await fetch(VALOR_API_URL, {
       method: "POST",

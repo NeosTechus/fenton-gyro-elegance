@@ -25,7 +25,7 @@ import { sendCreditSale, dollarsToCents } from "@/lib/valor";
 import { ValorEPI, getEPIs } from "@/lib/valor-epi";
 import { createOrder, subscribeToOrders, markOrderPaid, updateOrderStatus } from "@/lib/orders";
 import { Order, OrderStatus } from "@/data/orders";
-import { DollarSign, ChevronDown } from "lucide-react";
+import { DollarSign, ChevronDown, BarChart3 } from "lucide-react";
 
 type OrderType = "dine-in" | "take-out";
 
@@ -52,6 +52,8 @@ const POSPage = () => {
   const [selectedEpiId, setSelectedEpiId] = useState<string>(epis[0]?.id || "");
   const selectedEpi = epis.find((e) => e.id === selectedEpiId)?.wsUrl || "";
   const [showHistory, setShowHistory] = useState(false);
+  const [showAnalytics, setShowAnalytics] = useState(false);
+  const [analyticsRange, setAnalyticsRange] = useState<"today" | "month" | "3months">("today");
   const [orderHistory, setOrderHistory] = useState<Order[]>([]);
   const [historySearch, setHistorySearch] = useState("");
   const [historyDateFilter, setHistoryDateFilter] = useState("today");
@@ -259,6 +261,17 @@ const POSPage = () => {
           >
             <ClipboardList className="w-3.5 h-3.5" />
             Orders ({orderHistory.length})
+          </button>
+          <button
+            onClick={() => { setShowAnalytics(!showAnalytics); setShowHistory(false); }}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-sans font-semibold rounded-sm transition-all ${
+              showAnalytics
+                ? "bg-primary-foreground text-primary"
+                : "bg-primary-foreground/10 text-primary-foreground/70 hover:text-primary-foreground"
+            }`}
+          >
+            <BarChart3 className="w-3.5 h-3.5" />
+            Analytics
           </button>
         </div>
         <div className="flex items-center gap-3">
@@ -917,6 +930,194 @@ const POSPage = () => {
                     </div>
                   );
                 });
+              })()}
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Analytics slide-over */}
+      {showAnalytics && (
+        <>
+          <div className="fixed inset-0 bg-foreground/30 z-50" onClick={() => setShowAnalytics(false)} />
+          <div className="fixed right-0 top-0 bottom-0 w-[480px] bg-background border-l border-border z-50 flex flex-col shadow-2xl">
+            <div className="px-4 py-3 border-b border-border flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2">
+                <BarChart3 className="w-4 h-4 text-accent" />
+                <h2 className="font-sans font-bold text-sm">Sales Analytics</h2>
+              </div>
+              <button onClick={() => setShowAnalytics(false)} className="w-8 h-8 flex items-center justify-center rounded-sm hover:bg-muted active:scale-95">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            {/* Time range filter */}
+            <div className="px-4 py-2 border-b border-border shrink-0">
+              <div className="flex bg-muted rounded-sm p-0.5">
+                {([
+                  { key: "today", label: "Today" },
+                  { key: "month", label: "This Month" },
+                  { key: "3months", label: "3 Months" },
+                ] as const).map((opt) => (
+                  <button
+                    key={opt.key}
+                    onClick={() => setAnalyticsRange(opt.key)}
+                    className={`flex-1 py-1.5 text-[10px] font-sans font-semibold uppercase tracking-wider rounded-sm transition-all ${
+                      analyticsRange === opt.key
+                        ? "bg-primary text-primary-foreground shadow-sm"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              {(() => {
+                const now = new Date();
+                const todayStart = new Date(now); todayStart.setHours(0,0,0,0);
+                const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+                const threeMonthsStart = new Date(now.getFullYear(), now.getMonth() - 3, 1);
+
+                const rangeStart = analyticsRange === "today" ? todayStart
+                  : analyticsRange === "month" ? monthStart
+                  : threeMonthsStart;
+
+                const filteredOrders = orderHistory.filter((o) => new Date(o.created_at) >= rangeStart);
+                const activeOrders = filteredOrders.filter((o) => o.status !== "cancelled");
+                const totalRevenue = activeOrders.reduce((s, o) => s + o.total, 0);
+                const totalOrders = activeOrders.length;
+                const avgOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;
+
+                // Item sales
+                const itemCounts: Record<string, { name: string; qty: number; revenue: number }> = {};
+                activeOrders.forEach((order) => {
+                  order.items.forEach((item) => {
+                    if (!itemCounts[item.name]) itemCounts[item.name] = { name: item.name, qty: 0, revenue: 0 };
+                    itemCounts[item.name].qty += item.quantity;
+                    itemCounts[item.name].revenue += item.price * item.quantity;
+                  });
+                });
+                const topItems = Object.values(itemCounts).sort((a, b) => b.qty - a.qty);
+
+                // Source breakdown
+                const bySource = { pos: 0, kiosk: 0, web: 0 };
+                const revenueBySource = { pos: 0, kiosk: 0, web: 0 };
+                activeOrders.forEach((o) => {
+                  const src = (o.source || "pos") as keyof typeof bySource;
+                  bySource[src] = (bySource[src] || 0) + 1;
+                  revenueBySource[src] = (revenueBySource[src] || 0) + o.total;
+                });
+
+                // Payment breakdown
+                const byPayment = { card: 0, cash: 0 };
+                activeOrders.forEach((o) => {
+                  const pay = (o.payment || "card") as keyof typeof byPayment;
+                  byPayment[pay] = (byPayment[pay] || 0) + 1;
+                });
+
+                // Hourly breakdown
+                const hourly: Record<number, number> = {};
+                activeOrders.forEach((o) => {
+                  const hr = new Date(o.created_at).getHours();
+                  hourly[hr] = (hourly[hr] || 0) + 1;
+                });
+                const peakHour = Object.entries(hourly).sort(([,a], [,b]) => b - a)[0];
+
+                return (
+                  <>
+                    {/* Summary cards */}
+                    <div className="grid grid-cols-3 gap-3">
+                      <div className="bg-accent/10 border border-accent/20 rounded-sm p-3 text-center">
+                        <p className="text-[9px] text-muted-foreground uppercase tracking-wider mb-1">Revenue</p>
+                        <p className="text-lg font-sans font-bold text-accent">${totalRevenue.toFixed(2)}</p>
+                      </div>
+                      <div className="bg-primary/10 border border-primary/20 rounded-sm p-3 text-center">
+                        <p className="text-[9px] text-muted-foreground uppercase tracking-wider mb-1">Orders</p>
+                        <p className="text-lg font-sans font-bold text-primary">{totalOrders}</p>
+                      </div>
+                      <div className="bg-muted border border-border rounded-sm p-3 text-center">
+                        <p className="text-[9px] text-muted-foreground uppercase tracking-wider mb-1">Avg Order</p>
+                        <p className="text-lg font-sans font-bold">${avgOrderValue.toFixed(2)}</p>
+                      </div>
+                    </div>
+
+                    {/* Source breakdown */}
+                    <div className="bg-card border border-border rounded-sm p-3">
+                      <h3 className="text-xs font-sans font-bold uppercase tracking-wider text-muted-foreground mb-2">By Source</h3>
+                      <div className="space-y-2">
+                        {[
+                          { label: "POS", count: bySource.pos, revenue: revenueBySource.pos, color: "bg-blue-500" },
+                          { label: "Kiosk", count: bySource.kiosk, revenue: revenueBySource.kiosk, color: "bg-purple-500" },
+                          { label: "Website", count: bySource.web, revenue: revenueBySource.web, color: "bg-amber-500" },
+                        ].map((src) => (
+                          <div key={src.label} className="flex items-center gap-3">
+                            <div className={`w-2 h-2 rounded-full ${src.color} shrink-0`} />
+                            <span className="text-xs font-medium w-14">{src.label}</span>
+                            <div className="flex-1 bg-muted rounded-full h-2">
+                              <div className={`h-2 rounded-full ${src.color}`} style={{ width: `${totalOrders > 0 ? (src.count / totalOrders) * 100 : 0}%` }} />
+                            </div>
+                            <span className="text-xs font-semibold w-8 text-right">{src.count}</span>
+                            <span className="text-xs font-semibold text-accent w-16 text-right">${src.revenue.toFixed(2)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Payment breakdown */}
+                    <div className="bg-card border border-border rounded-sm p-3">
+                      <h3 className="text-xs font-sans font-bold uppercase tracking-wider text-muted-foreground mb-2">Payment Method</h3>
+                      <div className="flex gap-3">
+                        <div className="flex-1 bg-blue-50 border border-blue-200 rounded-sm p-3 text-center">
+                          <p className="text-xl font-bold text-blue-700">{byPayment.card}</p>
+                          <p className="text-[10px] text-blue-600 uppercase">Card</p>
+                        </div>
+                        <div className="flex-1 bg-emerald-50 border border-emerald-200 rounded-sm p-3 text-center">
+                          <p className="text-xl font-bold text-emerald-700">{byPayment.cash}</p>
+                          <p className="text-[10px] text-emerald-600 uppercase">Cash</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Peak hour */}
+                    {peakHour && (
+                      <div className="bg-card border border-border rounded-sm p-3">
+                        <h3 className="text-xs font-sans font-bold uppercase tracking-wider text-muted-foreground mb-1">Peak Hour</h3>
+                        <p className="text-sm font-semibold">{parseInt(peakHour[0]) > 12 ? `${parseInt(peakHour[0]) - 12} PM` : `${peakHour[0]} AM`} — {peakHour[1]} orders</p>
+                      </div>
+                    )}
+
+                    {/* Top selling items */}
+                    <div className="bg-card border border-border rounded-sm p-3">
+                      <h3 className="text-xs font-sans font-bold uppercase tracking-wider text-muted-foreground mb-2">Top Selling Items</h3>
+                      {topItems.length === 0 ? (
+                        <p className="text-xs text-muted-foreground text-center py-4">No data yet</p>
+                      ) : (
+                        <div className="space-y-1.5">
+                          {topItems.slice(0, 15).map((item, i) => (
+                            <div key={item.name} className="flex items-center gap-2 text-xs">
+                              <span className="w-4 text-muted-foreground text-right">{i + 1}.</span>
+                              <span className="flex-1 font-medium truncate">{item.name}</span>
+                              <span className="font-semibold w-6 text-right">{item.qty}</span>
+                              <span className="font-semibold text-accent w-14 text-right">${item.revenue.toFixed(2)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Cancelled orders */}
+                    {filteredOrders.filter((o) => o.status === "cancelled").length > 0 && (
+                      <div className="bg-red-50 border border-red-200 rounded-sm p-3">
+                        <h3 className="text-xs font-sans font-bold uppercase tracking-wider text-red-600 mb-1">Cancelled</h3>
+                        <p className="text-sm font-semibold text-red-700">
+                          {filteredOrders.filter((o) => o.status === "cancelled").length} orders cancelled
+                        </p>
+                      </div>
+                    )}
+                  </>
+                );
               })()}
             </div>
           </div>
