@@ -19,6 +19,10 @@ const AuthPage = () => {
   const [searchParams] = useSearchParams();
   const redirectTo = searchParams.get("redirect");
 
+  // Hide sign-up for staff login pages (POS, Kiosk, Kitchen, Admin)
+  const isStaffLogin = redirectTo && ["/pos", "/kiosk", "/kitchen", "/admin", "/settings"].includes(redirectTo);
+  const showSignUp = !isStaffLogin;
+
   const getPostLoginRoute = (email: string) => {
     const lower = email.toLowerCase();
     const role = getRoleForEmail(email);
@@ -82,13 +86,16 @@ const AuthPage = () => {
         <div className="w-full max-w-md bg-card border border-border rounded-sm p-8 animate-fade-up">
           {/* Header */}
           <div className="text-center mb-6">
-            <h1 className="font-serif text-2xl md:text-3xl font-medium mb-1">Welcome</h1>
+            <h1 className="font-serif text-2xl md:text-3xl font-medium mb-1">
+              {isStaffLogin ? "Staff Login" : "Welcome"}
+            </h1>
             <p className="text-sm text-muted-foreground">
-              Sign in to track orders and enjoy faster checkout
+              {isStaffLogin ? "Sign in with your staff credentials" : "Sign in to track orders and enjoy faster checkout"}
             </p>
           </div>
 
-          {/* Tab toggle */}
+          {/* Tab toggle — hidden for staff login */}
+          {showSignUp && (
           <div className="flex bg-muted rounded-sm p-1 mb-6">
             <button
               onClick={() => setMode("signin")}
@@ -113,10 +120,11 @@ const AuthPage = () => {
               Sign Up
             </button>
           </div>
+          )}
 
           {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-4">
-            {mode === "signup" && (
+            {mode === "signup" && showSignUp && (
               <div>
                 <label className="block text-sm font-sans font-semibold text-foreground mb-1.5">
                   Display Name
@@ -214,10 +222,12 @@ const AuthPage = () => {
           </button>
         </div>
 
-        {/* Guest note */}
-        <p className="text-sm text-muted-foreground mt-6 text-center">
-          You can also checkout as a guest and create an account later
-        </p>
+        {/* Guest note — hidden for staff login */}
+        {!isStaffLogin && (
+          <p className="text-sm text-muted-foreground mt-6 text-center">
+            You can also checkout as a guest and create an account later
+          </p>
+        )}
       </main>
       <Footer />
     </>
