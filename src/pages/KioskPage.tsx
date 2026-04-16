@@ -51,16 +51,16 @@ const KioskPage = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedMods, setSelectedMods] = useState<Record<string, string[]>>({});
   const [epis] = useState<ValorEPI[]>(() => getEPIs());
-  const [selectedEpi, setSelectedEpi] = useState<string>(() => {
-    // Each tablet remembers its assigned terminal
-    const saved = localStorage.getItem("kiosk_terminal");
-    if (saved && epis.some((e) => e.wsUrl === saved)) return saved;
-    return epis[0]?.wsUrl || "";
+  const [selectedEpiId, setSelectedEpiId] = useState<string>(() => {
+    const saved = localStorage.getItem("kiosk_terminal_id");
+    if (saved && epis.some((e) => e.id === saved)) return saved;
+    return epis[0]?.id || "";
   });
+  const selectedEpi = epis.find((e) => e.id === selectedEpiId)?.wsUrl || "";
 
-  const assignTerminal = (wsUrl: string) => {
-    setSelectedEpi(wsUrl);
-    localStorage.setItem("kiosk_terminal", wsUrl);
+  const assignTerminal = (epiId: string) => {
+    setSelectedEpiId(epiId);
+    localStorage.setItem("kiosk_terminal_id", epiId);
   };
 
   const totalItems = cart.reduce((s, c) => s + c.qty, 0);
@@ -268,12 +268,12 @@ const KioskPage = () => {
         {epis.length > 1 && (
           <div className="absolute bottom-4 right-4 z-20" onClick={(e) => e.stopPropagation()}>
             <select
-              value={selectedEpi}
+              value={selectedEpiId}
               onChange={(e) => assignTerminal(e.target.value)}
               className="bg-primary-foreground/10 text-primary-foreground/60 text-xs font-sans px-2 py-1.5 rounded-sm border border-primary-foreground/20 focus:outline-none"
             >
               {epis.map((epi) => (
-                <option key={epi.id} value={epi.wsUrl} className="text-foreground bg-background">
+                <option key={epi.id} value={epi.id} className="text-foreground bg-background">
                   {epi.label}
                 </option>
               ))}

@@ -49,7 +49,8 @@ const POSPage = () => {
   const [selectedMods, setSelectedMods] = useState<Record<string, string[]>>({});
   const [orderNumber] = useState(() => Math.floor(100 + Math.random() * 900));
   const [epis] = useState<ValorEPI[]>(() => getEPIs());
-  const [selectedEpi, setSelectedEpi] = useState<string>(epis[0]?.wsUrl || "");
+  const [selectedEpiId, setSelectedEpiId] = useState<string>(epis[0]?.id || "");
+  const selectedEpi = epis.find((e) => e.id === selectedEpiId)?.wsUrl || "";
   const [showHistory, setShowHistory] = useState(false);
   const [orderHistory, setOrderHistory] = useState<Order[]>([]);
   const [historySearch, setHistorySearch] = useState("");
@@ -268,12 +269,12 @@ const POSPage = () => {
           {/* Terminal selector */}
           {epis.length > 0 && (
             <select
-              value={selectedEpi}
-              onChange={(e) => setSelectedEpi(e.target.value)}
+              value={selectedEpiId}
+              onChange={(e) => setSelectedEpiId(e.target.value)}
               className="bg-primary-foreground/10 text-primary-foreground text-xs font-sans font-semibold px-2 py-1.5 rounded-sm border-none focus:outline-none focus:ring-1 focus:ring-accent/50"
             >
               {epis.map((epi) => (
-                <option key={epi.id} value={epi.wsUrl} className="text-foreground bg-background">
+                <option key={epi.id} value={epi.id} className="text-foreground bg-background">
                   {epi.label}
                 </option>
               ))}
