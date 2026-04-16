@@ -1,8 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useParams, Link } from "react-router-dom";
 import { doc, onSnapshot, Timestamp } from "firebase/firestore";
 import { db, isFirebaseConfigured } from "@/lib/firebase";
 import { Order, OrderStatus } from "@/data/orders";
+import { updateOrderStatus } from "@/lib/orders";
+import { toast } from "sonner";
 import {
   ArrowLeft,
   Clock,
@@ -89,6 +91,39 @@ const TrackOrder = () => {
 
   const currentStep = order ? STATUS_INDEX[order.status] ?? 0 : 0;
   const isCancelled = order?.status === "cancelled";
+
+  // Cancel window — 60 seconds after order placed
+  const [cancelTimeLeft, setCancelTimeLeft] = useState(0);
+  const [cancelling, setCancelling] = useState(false);
+
+  useEffect(() => {
+    if (!order || isCancelled || order.status === "completed") return;
+
+    const orderTime = new Date(order.created_at).getTime();
+    const cancelDeadline = orderTime + 60 * 1000; // 1 minute
+
+    const tick = () => {
+      const remaining = Math.max(0, Math.ceil((cancelDeadline - Date.now()) / 1000));
+      setCancelTimeLeft(remaining);
+    };
+
+    tick();
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, [order, isCancelled]);
+
+  const handleCancel = useCallback(async () => {
+    if (!order || !orderId || cancelTimeLeft <= 0) return;
+    setCancelling(true);
+    try {
+      await updateOrderStatus(orderId, "cancelled");
+      toast.success("Order cancelled. Your refund will be processed shortly.");
+    } catch {
+      toast.error("Failed to cancel order. Please call (636) 600-1333.");
+    } finally {
+      setCancelling(false);
+    }
+  }, [order, orderId, cancelTimeLeft]);
 
   return (
     <>
@@ -280,6 +315,22 @@ const TrackOrder = () => {
               </div>
 
               {/* Contact */}
+              {/* Cancel button — available for 60 seconds after order placed */}
+              {cancelTimeLeft > 0 && !isCancelled && order.status !== "completed" && (
+                <div className="mt-6 bg-red-50 border border-red-200 rounded-sm p-4 text-center">
+                  <p className="text-xs text-red-600 mb-2">
+                    Changed your mind? You can cancel within <span className="font-bold">{cancelTimeLeft}s</span>
+                  </p>
+                  <button
+                    onClick={handleCancel}
+                    disabled={cancelling}
+                    className="px-6 py-2.5 bg-red-600 text-white font-sans font-semibold text-sm uppercase tracking-wider rounded-sm hover:bg-red-700 active:scale-[0.97] transition-all disabled:opacity-50"
+                  >
+                    {cancelling ? "Cancelling..." : "Cancel Order & Refund"}
+                  </button>
+                </div>
+              )}
+
               <div className="mt-6 text-center">
                 <a
                   href="tel:6366001333"
