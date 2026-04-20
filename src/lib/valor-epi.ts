@@ -88,33 +88,25 @@ export function updateEPI(id: string, updates: Partial<ValorEPI>): ValorEPI[] {
 }
 
 /**
- * Check if a terminal is online by attempting a WebSocket connection.
- * Returns true if the connection opens within 5 seconds.
+ * Check if a terminal is online via Valor Connect cloud.
+ * Sends a harmless status ping (vc_status with a dummy req_txn_id) and
+ * infers reachability from the response.
  */
-export function checkDeviceStatus(wsUrl: string): Promise<boolean> {
-  if (!wsUrl) return Promise.resolve(false);
-  return new Promise((resolve) => {
-    try {
-      const ws = new WebSocket(wsUrl);
-      const timeout = setTimeout(() => {
-        ws.close();
-        resolve(false);
-      }, 5000);
-
-      ws.onopen = () => {
-        clearTimeout(timeout);
-        ws.close();
-        resolve(true);
-      };
-
-      ws.onerror = () => {
-        clearTimeout(timeout);
-        resolve(false);
-      };
-    } catch {
-      resolve(false);
-    }
-  });
+export async function checkDeviceStatus(epi: string, appkey: string): Promise<boolean> {
+  if (!epi || !appkey) return false;
+  try {
+    const res = await fetch("/api/valor-terminal-status", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ epi, appkey, reqTxnId: `PING${Date.now()}` }),
+      signal: AbortSignal.timeout(8000),
+    });
+    const data = await res.json();
+    // Valor reachable if we got any JSON response without a network/auth error
+    return res.ok && !data.error;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -125,7 +117,7 @@ export async function refreshAllStatuses(): Promise<ValorEPI[]> {
   const results = await Promise.all(
     epis.map(async (epi) => ({
       ...epi,
-      online: await checkDeviceStatus(epi.wsUrl),
+      online: await checkDeviceStatus(epi.id, epi.appKey || ""),
     }))
   );
   saveEPIs(results);

@@ -56,7 +56,9 @@ const KioskPage = () => {
     if (saved && epis.some((e) => e.id === saved)) return saved;
     return epis[0]?.id || "";
   });
-  const selectedEpi = epis.find((e) => e.id === selectedEpiId)?.wsUrl || "";
+  const selectedTerminal = epis.find((e) => e.id === selectedEpiId);
+  const selectedEpi = selectedTerminal?.id || "";
+  const selectedAppKey = selectedTerminal?.appKey || "";
 
   const assignTerminal = (epiId: string) => {
     setSelectedEpiId(epiId);
@@ -172,7 +174,8 @@ const KioskPage = () => {
         tipEnabled: false,
         printReceipt: true,
         lineItems,
-        wsUrl: selectedEpi || undefined,
+        epi: selectedEpi,
+        appkey: selectedAppKey,
       });
 
       await saveKioskOrder("card", {

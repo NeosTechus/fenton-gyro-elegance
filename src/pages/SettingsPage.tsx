@@ -33,7 +33,7 @@ const SettingsPage = () => {
   // New EPI form
   const [newLabel, setNewLabel] = useState("");
   const [newId, setNewId] = useState("");
-  const [newWsUrl, setNewWsUrl] = useState("ws://");
+  const [newAppKey, setNewAppKey] = useState("");
 
   useEffect(() => {
     setEpis(getEPIs());
@@ -51,15 +51,15 @@ const SettingsPage = () => {
   if (role !== "admin") return <Navigate to="/" replace />;
 
   const handleAdd = () => {
-    if (!newLabel.trim() || !newId.trim() || !newWsUrl.trim()) {
+    if (!newLabel.trim() || !newId.trim() || !newAppKey.trim()) {
       toast.error("Fill in all fields");
       return;
     }
-    const updated = addEPI({ id: newId.trim(), label: newLabel.trim(), wsUrl: newWsUrl.trim() });
+    const updated = addEPI({ id: newId.trim(), label: newLabel.trim(), wsUrl: "", appKey: newAppKey.trim() });
     setEpis(updated);
     setNewLabel("");
     setNewId("");
-    setNewWsUrl("ws://");
+    setNewAppKey("");
     toast.success("Terminal added");
   };
 
@@ -177,19 +177,17 @@ const SettingsPage = () => {
                     </div>
                     <input
                       type="text"
-                      value={epi.wsUrl}
+                      value={epi.appKey || ""}
                       onChange={(e) => {
-                        const updated = updateEPI(epi.id, { wsUrl: e.target.value });
+                        const updated = updateEPI(epi.id, { appKey: e.target.value });
                         setEpis(updated);
                       }}
-                      placeholder="ws://192.168.1.10:5000"
+                      placeholder="APP KEY (32 chars)"
                       className="w-full mt-1.5 px-2 py-1 bg-background border border-border rounded-sm text-xs font-mono text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-accent/50"
                     />
-                    {epi.appKey && (
-                      <p className="text-[10px] text-muted-foreground/60 mt-1 font-mono truncate">
-                        APP KEY: {epi.appKey.slice(0, 8)}••••••••
-                      </p>
-                    )}
+                    <p className="text-[10px] text-muted-foreground/60 mt-1 font-mono">
+                      Terminal connects via Valor Connect cloud (Channel ID in env)
+                    </p>
                   </div>
                   <button
                     onClick={() => handleRemove(epi.id)}
@@ -225,9 +223,9 @@ const SettingsPage = () => {
               />
               <input
                 type="text"
-                placeholder="ws://192.168.1.10:5000"
-                value={newWsUrl}
-                onChange={(e) => setNewWsUrl(e.target.value)}
+                placeholder="APP KEY (32 chars)"
+                value={newAppKey}
+                onChange={(e) => setNewAppKey(e.target.value)}
                 className="px-3 py-2.5 bg-background border border-border rounded-sm text-sm font-sans text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-accent/50"
               />
             </div>

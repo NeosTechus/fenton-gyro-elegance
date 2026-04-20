@@ -1,12 +1,12 @@
 /**
- * Valor Connect — WebSocket integration for in-store POS/Kiosk payments.
+ * Valor Connect — REST Wrapper API integration for in-store POS/Kiosk payments.
  *
- * Connection modes:
- *   - Valor Connect (cloud): wss://<vc-server>  (uses Channel ID + certs)
- *   - Local WebSocket:       ws://<terminal-ip>:5000
+ * Flow:
+ *   1. Publish transaction via /api/valor-terminal-publish (Vercel serverless)
+ *   2. Poll /api/valor-terminal-status until terminal completes the sale
  *
- * The env var VITE_VALOR_WS_URL should point to whichever mode you use.
- * The env var VITE_VALOR_EPI is the terminal Endpoint Identifier.
+ * Requires VALOR_CHANNEL_ID on the server (set in Vercel env vars).
+ * The terminal's EPI + APP KEY identify which device gets the transaction.
  */
 
 // ── Types ────────────────────────────────────────────────────────────────
@@ -15,10 +15,10 @@ export interface ValorSaleRequest {
   TRAN_MODE: string;   // "1"=Credit, "2"=Debit, "6"=Cash
   TRAN_CODE: string;   // "1"=Sale, "2"=Void, "5"=Refund
   AMOUNT: string;      // cents — e.g. "1000" = $10.00
-  TIP_ENTRY?: string;  // "1"=enable, "0"=disable
+  TIP_ENTRY?: string;
   TIP_AMOUNT?: string;
-  SIGNATURE?: string;  // "1"=enable, "0"=disable
-  PAPER_RECEIPT?: string; // "0"=TMS, "1"=none, "2"=print, "3"=TMS
+  SIGNATURE?: string;
+  PAPER_RECEIPT?: string;
   MOBILE_ENTRY?: string;
   MOBILE_NUMBER?: string;
   CANCEL_CONFIRMATION?: string;
@@ -57,26 +57,16 @@ export interface ValorFailureResponse {
   ERROR_MSG: string;
 }
 
-export interface ValorAckResponse {
-  STATE: "0";
-  MSG: "ACK";
-}
-
-export type ValorResponse = ValorSuccessResponse | ValorFailureResponse | ValorAckResponse;
+export type ValorResponse = ValorSuccessResponse | ValorFailureResponse;
 
 // ── Config ───────────────────────────────────────────────────────────────
 
 export const isTestMode = import.meta.env.VITE_TEST_MODE === "true";
 
-export function getValorConfig() {
-  return {
-    wsUrl: import.meta.env.VITE_VALOR_WS_URL || "",
-    epi: import.meta.env.VITE_VALOR_EPI || "",
-  };
-}
-
 export function isValorConfigured(): boolean {
-  return isTestMode || !!import.meta.env.VITE_VALOR_WS_URL;
+  // In cloud mode, the server holds VALOR_CHANNEL_ID. The client just needs
+  // a selected EPI + APP KEY (managed via the Payment Terminals settings page).
+  return true;
 }
 
 // ── Test mode mock ───────────────────────────────────────────────────────
@@ -104,99 +94,88 @@ function mockCreditSaleResponse(amountCents: string): ValorSuccessResponse {
   };
 }
 
-// ── Helper: convert dollar amount to cents string ────────────────────────
+// ── Helpers ──────────────────────────────────────────────────────────────
 
 export function dollarsToCents(amount: number): string {
   return Math.round(amount * 100).toString();
 }
 
-// ── WebSocket transaction sender ─────────────────────────────────────────
-
-function isAck(data: ValorResponse): data is ValorAckResponse {
-  return data.STATE === "0" && "MSG" in data && data.MSG === "ACK";
+function sleep(ms: number) {
+  return new Promise((r) => setTimeout(r, ms));
 }
 
+// ── REST transaction sender ──────────────────────────────────────────────
+
+const POLL_INTERVAL_MS = 2000;
+const POLL_TIMEOUT_MS = 180_000; // 3 minutes
+
 /**
- * Opens a WebSocket to the Valor terminal, sends the request JSON,
- * and waits for the final (non-ACK) response.
- *
- * Timeout: 180 s (Valor Connect recommendation).
+ * Sends a transaction to the selected Valor terminal via Valor Connect cloud.
+ * Requires the terminal's EPI and APP KEY (from the Payment Terminals settings).
  */
-export function sendValorTransaction(
+export async function sendValorTransaction(
   request: ValorSaleRequest,
-  overrideWsUrl?: string
-): Promise<ValorSuccessResponse | ValorFailureResponse> {
-  // Test mode — simulate a 2-second payment delay then return success
+  epi: string,
+  appkey: string
+): Promise<ValorSuccessResponse> {
   if (isTestMode) {
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        resolve(mockCreditSaleResponse(request.AMOUNT));
-      }, 2000);
-    });
+    await sleep(2000);
+    return mockCreditSaleResponse(request.AMOUNT);
   }
 
-  const wsUrl = overrideWsUrl || getValorConfig().wsUrl;
-  if (!wsUrl) {
-    return Promise.reject(new Error("No terminal URL configured. Select a terminal or set VITE_VALOR_WS_URL."));
+  if (!epi || !appkey) {
+    throw new Error("No terminal selected. Choose a terminal on the Settings page.");
   }
 
-  return new Promise((resolve, reject) => {
-    let settled = false;
-    const ws = new WebSocket(wsUrl);
-
-    const timeout = setTimeout(() => {
-      if (!settled) {
-        settled = true;
-        ws.close();
-        reject(new Error("Valor transaction timed out (180s). Check terminal."));
-      }
-    }, 180_000);
-
-    const cleanup = () => {
-      clearTimeout(timeout);
-      try { ws.close(); } catch { /* already closed */ }
-    };
-
-    ws.onopen = () => {
-      ws.send(JSON.stringify(request));
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        const data: ValorResponse = JSON.parse(event.data);
-
-        // Skip ACK — wait for the real response
-        if (isAck(data)) return;
-
-        settled = true;
-        cleanup();
-
-        if (data.STATE === "0") {
-          resolve(data as ValorSuccessResponse);
-        } else {
-          reject(new Error((data as ValorFailureResponse).ERROR_MSG || "Transaction failed"));
-        }
-      } catch {
-        // ignore non-JSON messages
-      }
-    };
-
-    ws.onerror = (event) => {
-      if (!settled) {
-        settled = true;
-        cleanup();
-        reject(new Error("WebSocket connection failed. Is the terminal online?"));
-      }
-    };
-
-    ws.onclose = () => {
-      if (!settled) {
-        settled = true;
-        clearTimeout(timeout);
-        reject(new Error("Connection closed before response received."));
-      }
-    };
+  // 1. Publish
+  const publishRes = await fetch("/api/valor-terminal-publish", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ epi, appkey, payload: request }),
   });
+
+  const publishData = await publishRes.json();
+  if (!publishRes.ok) {
+    throw new Error(publishData.error || "Failed to publish transaction");
+  }
+
+  const reqTxnId = publishData.reqTxnId;
+
+  // Some publish responses may already include the final result
+  const immediate = publishData.response?.payload || publishData.response;
+  if (immediate?.STATE === "0" && immediate.MASKED_PAN) {
+    return immediate as ValorSuccessResponse;
+  }
+  if (immediate?.STATE === "-1") {
+    throw new Error((immediate as ValorFailureResponse).ERROR_MSG || "Transaction failed");
+  }
+
+  // 2. Poll for status until done
+  const start = Date.now();
+  while (Date.now() - start < POLL_TIMEOUT_MS) {
+    await sleep(POLL_INTERVAL_MS);
+
+    const statusRes = await fetch("/api/valor-terminal-status", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ epi, appkey, reqTxnId }),
+    });
+
+    const statusData = await statusRes.json();
+    if (!statusRes.ok) continue;
+
+    const payload = statusData.response?.payload || statusData.response;
+    if (!payload) continue;
+
+    if (payload.STATE === "0" && payload.MASKED_PAN) {
+      return payload as ValorSuccessResponse;
+    }
+    if (payload.STATE === "-1") {
+      throw new Error((payload as ValorFailureResponse).ERROR_MSG || "Transaction failed");
+    }
+  }
+
+  throw new Error("Valor transaction timed out (180s). Check terminal.");
 }
 
 // ── Convenience: Credit Card Sale ────────────────────────────────────────
@@ -208,7 +187,8 @@ export interface ValorSaleOptions {
   printReceipt?: boolean;
   invoiceNumber?: string;
   lineItems?: { product_code: string; quantity: string; total: string }[];
-  wsUrl?: string; // override terminal URL (from EPI selection)
+  epi: string;
+  appkey: string;
 }
 
 export function sendCreditSale(opts: ValorSaleOptions) {
@@ -225,10 +205,10 @@ export function sendCreditSale(opts: ValorSaleOptions) {
   if (opts.tipAmountCents) request.TIP_AMOUNT = opts.tipAmountCents;
   if (opts.invoiceNumber) request.INVOICENUMBER = opts.invoiceNumber;
   if (opts.lineItems) request.lineItems = opts.lineItems;
-  return sendValorTransaction(request, opts.wsUrl);
+  return sendValorTransaction(request, opts.epi, opts.appkey);
 }
 
-export function sendVoid(tranNo: string, wsUrl?: string) {
+export function sendVoid(tranNo: string, epi: string, appkey: string) {
   return sendValorTransaction({
     TRAN_MODE: "0",
     TRAN_CODE: "2",
@@ -237,5 +217,5 @@ export function sendVoid(tranNo: string, wsUrl?: string) {
     VOID_CONFIRMATION: "0",
     PAPER_RECEIPT: "2",
     MOBILE_ENTRY: "0",
-  } as any, wsUrl);
+  } as any, epi, appkey);
 }

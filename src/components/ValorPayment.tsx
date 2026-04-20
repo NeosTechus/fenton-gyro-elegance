@@ -7,6 +7,8 @@ interface ValorPaymentProps {
   tipEnabled?: boolean;
   orderNumber?: number;
   lineItems?: { name: string; price: number; quantity: number }[];
+  epi: string;
+  appkey: string;
   onSuccess: (response: ValorSuccessResponse) => void;
   onCancel: () => void;
 }
@@ -18,6 +20,8 @@ const ValorPayment = ({
   tipEnabled = true,
   orderNumber,
   lineItems,
+  epi,
+  appkey,
   onSuccess,
   onCancel,
 }: ValorPaymentProps) => {
@@ -41,6 +45,8 @@ const ValorPayment = ({
           quantity: item.quantity.toString(),
           total: item.price.toFixed(2),
         })),
+        epi,
+        appkey,
       });
 
       setResponse(result);
@@ -60,7 +66,7 @@ const ValorPayment = ({
           Valor terminal not configured.
         </p>
         <p className="text-xs text-muted-foreground/60 mt-1">
-          Add VITE_VALOR_WS_URL to your .env file.
+          Select a terminal on the Settings page.
         </p>
       </div>
     );

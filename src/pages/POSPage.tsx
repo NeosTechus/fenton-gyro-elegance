@@ -50,7 +50,9 @@ const POSPage = () => {
   const [orderNumber] = useState(() => Math.floor(100 + Math.random() * 900));
   const [epis] = useState<ValorEPI[]>(() => getEPIs());
   const [selectedEpiId, setSelectedEpiId] = useState<string>(epis[0]?.id || "");
-  const selectedEpi = epis.find((e) => e.id === selectedEpiId)?.wsUrl || "";
+  const selectedTerminal = epis.find((e) => e.id === selectedEpiId);
+  const selectedEpi = selectedTerminal?.id || "";
+  const selectedAppKey = selectedTerminal?.appKey || "";
   const [showHistory, setShowHistory] = useState(false);
   const [showAnalytics, setShowAnalytics] = useState(false);
   const [analyticsRange, setAnalyticsRange] = useState<"today" | "month" | "3months">("today");
@@ -146,7 +148,8 @@ const POSPage = () => {
         printReceipt: true,
         invoiceNumber: orderNumber.toString(),
         lineItems,
-        wsUrl: selectedEpi || undefined,
+        epi: selectedEpi,
+        appkey: selectedAppKey,
       });
 
       await saveOrder("card", {
@@ -429,7 +432,8 @@ const POSPage = () => {
                                           tipEnabled: false,
                                           printReceipt: true,
                                           invoiceNumber: order.id,
-                                          wsUrl: selectedEpi || undefined,
+                                          epi: selectedEpi,
+        appkey: selectedAppKey,
                                         });
                                       } catch (err) {
                                         toast.error(err instanceof Error ? err.message : "Card payment failed");
@@ -473,7 +477,8 @@ const POSPage = () => {
                                     tipEnabled: true,
                                     printReceipt: true,
                                     invoiceNumber: order.id,
-                                    wsUrl: selectedEpi || undefined,
+                                    epi: selectedEpi,
+        appkey: selectedAppKey,
                                   });
                                   await markOrderPaid(order.id);
                                   toast.success(`Card payment for ${tag} — ${result.ISSUER} ${result.MASKED_PAN}`, { duration: 2000 });
@@ -723,7 +728,8 @@ const POSPage = () => {
                               tipEnabled: false,
                               printReceipt: true,
                               invoiceNumber: orderNumber.toString(),
-                              wsUrl: selectedEpi || undefined,
+                              epi: selectedEpi,
+        appkey: selectedAppKey,
                             });
                           }
                           await saveOrder("card", {});
