@@ -19,8 +19,8 @@ const Footer = () => (
           rel="noopener noreferrer"
           className="flex items-center gap-1.5 text-xs text-muted-foreground/60 hover:text-foreground transition-colors"
         >
-          <img src="/neostechus-logo.png" alt="NeosTech" className="h-4 w-auto" />
-          Proud client of NeosTech
+          <img src="/neostechus-logo.png" alt="NeosTech LLC" className="h-4 w-auto" />
+          Powered by NeosTech LLC
         </a>
       </div>
     </div>
