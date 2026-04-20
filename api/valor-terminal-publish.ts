@@ -43,6 +43,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     : `TXN${Date.now()}${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
 
   try {
+    // Valor Connect expects req_txn_id both at top level AND inside payload
+    // (error VC06 "REQUEST TXN ID REQUIRED" when only at top level)
     const body = {
       appid: VALOR_APPID,
       appkey,
@@ -51,7 +53,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       txn_type: "vc_publish",
       req_txn_id: txnId,
       version: "2",
-      payload,
+      payload: { ...payload, req_txn_id: txnId },
     };
 
     const controller = new AbortController();
