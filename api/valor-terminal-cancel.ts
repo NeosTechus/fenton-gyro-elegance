@@ -7,7 +7,7 @@ import {
   isAppKey,
   isReqTxnId,
   errorResponse,
-} from "./_lib/security";
+} from "./_lib/security.js";
 
 /**
  * POST /api/valor-terminal-cancel
@@ -42,18 +42,32 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       req_txn_id: reqTxnId,
     };
 
-    const valorResponse = await fetch(VALOR_API_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8_000);
+    let valorResponse: Response;
+    try {
+      valorResponse = await fetch(VALOR_API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
 
     const text = await valorResponse.text();
     let data: any;
     try { data = JSON.parse(text); } catch { data = { raw: text }; }
 
     return res.status(200).json({ response: data });
-  } catch (error) {
-    return errorResponse(res, 500, "Internal error", error);
+  } catch (error: any) {
+    const isTimeout = error?.name === "AbortError";
+    return errorResponse(
+      res,
+      isTimeout ? 504 : 500,
+      isTimeout ? "Valor API timed out" : "Internal error",
+      error,
+    );
   }
 }

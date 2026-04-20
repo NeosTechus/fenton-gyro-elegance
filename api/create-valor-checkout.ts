@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { rateLimit, isAllowedOrigin, setCors, errorResponse } from "./_lib/security";
+import { rateLimit, isAllowedOrigin, setCors, errorResponse } from "./_lib/security.js";
 
 /**
  * POST /api/create-valor-checkout
