@@ -1,34 +1,22 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
+import { rateLimit, isAllowedOrigin, setCors, errorResponse } from "./_lib/security";
 
 /**
  * POST /api/create-valor-checkout
  *
  * Creates a Valor ePage hosted checkout session for online ordering.
- * Secrets come from Vercel environment variables (set in dashboard).
- *
- * Valor endpoints:
- *   Test: https://securelinktest.valorpaytech.com:4430/
- *   Prod: https://securelink.valorpaytech.com:4430/
  */
 
-// Set VALOR_API_URL in environment variables:
-//   Test: https://securelinktest.valorpaytech.com:4430/
-//   Prod: https://securelink.valorpaytech.com:4430/
 const VALOR_API_URL = process.env.VALOR_API_URL;
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // CORS
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  setCors(res, req.headers.origin as string | undefined);
 
-  if (req.method === "OPTIONS") {
-    return res.status(204).end();
-  }
+  if (req.method === "OPTIONS") return res.status(204).end();
+  if (req.method !== "POST") return errorResponse(res, 405, "Method not allowed");
 
-  if (req.method !== "POST") {
-    return res.status(405).json({ error: "Method not allowed" });
-  }
+  if (!isAllowedOrigin(req)) return errorResponse(res, 403, "Forbidden origin");
+  if (!rateLimit(req, 10, 60_000)) return errorResponse(res, 429, "Too many requests");
 
   // Validate config
   if (!VALOR_API_URL) {

@@ -1,9 +1,16 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
+import {
+  rateLimit,
+  isAllowedOrigin,
+  setCors,
+  isEpi,
+  isAppKey,
+  isReqTxnId,
+  errorResponse,
+} from "./_lib/security";
 
 /**
  * POST /api/valor-terminal-cancel
- *
- * Cancels an in-progress Valor Connect transaction.
  */
 
 const VALOR_API_URL = process.env.VALOR_API_URL;
@@ -11,23 +18,21 @@ const VALOR_APPID = process.env.VALOR_APPID;
 const VALOR_CHANNEL_ID = process.env.VALOR_CHANNEL_ID;
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-
+  setCors(res, req.headers.origin as string | undefined);
   if (req.method === "OPTIONS") return res.status(204).end();
-  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+  if (req.method !== "POST") return errorResponse(res, 405, "Method not allowed");
 
-  if (!VALOR_API_URL || !VALOR_APPID || !VALOR_CHANNEL_ID) {
-    return res.status(500).json({ error: "Valor Connect not configured." });
-  }
+  if (!isAllowedOrigin(req)) return errorResponse(res, 403, "Forbidden origin");
+  if (!rateLimit(req, 20, 60_000)) return errorResponse(res, 429, "Too many requests");
+
+  if (!VALOR_API_URL || !VALOR_APPID || !VALOR_CHANNEL_ID) return errorResponse(res, 500, "Service unavailable");
+
+  const { epi, appkey, reqTxnId } = req.body || {};
+  if (!isEpi(epi)) return errorResponse(res, 400, "Invalid epi");
+  if (!isAppKey(appkey)) return errorResponse(res, 400, "Invalid appkey");
+  if (!isReqTxnId(reqTxnId)) return errorResponse(res, 400, "Invalid reqTxnId");
 
   try {
-    const { epi, appkey, reqTxnId } = req.body;
-    if (!epi || !appkey || !reqTxnId) {
-      return res.status(400).json({ error: "epi, appkey, and reqTxnId are required" });
-    }
-
     const body = {
       appid: VALOR_APPID,
       appkey,
@@ -48,8 +53,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     try { data = JSON.parse(text); } catch { data = { raw: text }; }
 
     return res.status(200).json({ response: data });
-  } catch (error: any) {
-    console.error("valor-terminal-cancel error:", error);
-    return res.status(500).json({ error: error.message || "Internal error" });
+  } catch (error) {
+    return errorResponse(res, 500, "Internal error", error);
   }
 }

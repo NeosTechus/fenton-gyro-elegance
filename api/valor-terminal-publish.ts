@@ -1,14 +1,18 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
+import {
+  rateLimit,
+  isAllowedOrigin,
+  setCors,
+  isEpi,
+  isAppKey,
+  isCentsAmount,
+  errorResponse,
+} from "./_lib/security";
 
 /**
  * POST /api/valor-terminal-publish
  *
  * Sends a transaction to a Valor terminal via Valor Connect Wrapper API.
- * This is the cloud path — works from Vercel (HTTPS) without direct
- * WebSocket to the terminal.
- *
- * Request body: { epi, appkey, payload }
- * Secrets (VALOR_APPID, VALOR_CHANNEL_ID, VALOR_API_URL) come from env.
  */
 
 const VALOR_API_URL = process.env.VALOR_API_URL;
@@ -16,28 +20,29 @@ const VALOR_APPID = process.env.VALOR_APPID;
 const VALOR_CHANNEL_ID = process.env.VALOR_CHANNEL_ID;
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-
+  setCors(res, req.headers.origin as string | undefined);
   if (req.method === "OPTIONS") return res.status(204).end();
-  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+  if (req.method !== "POST") return errorResponse(res, 405, "Method not allowed");
+
+  if (!isAllowedOrigin(req)) return errorResponse(res, 403, "Forbidden origin");
+  if (!rateLimit(req, 20, 60_000)) return errorResponse(res, 429, "Too many requests");
 
   if (!VALOR_API_URL || !VALOR_APPID || !VALOR_CHANNEL_ID) {
-    return res.status(500).json({
-      error: "Valor Connect not configured. Set VALOR_API_URL, VALOR_APPID, VALOR_CHANNEL_ID.",
-    });
+    return errorResponse(res, 500, "Service unavailable");
   }
 
+  const { epi, appkey, payload, reqTxnId } = req.body || {};
+
+  if (!isEpi(epi)) return errorResponse(res, 400, "Invalid epi");
+  if (!isAppKey(appkey)) return errorResponse(res, 400, "Invalid appkey");
+  if (!payload || typeof payload !== "object") return errorResponse(res, 400, "Invalid payload");
+  if (!isCentsAmount(payload.AMOUNT)) return errorResponse(res, 400, "Invalid amount");
+
+  const txnId = typeof reqTxnId === "string" && /^[A-Z0-9]{5,25}$/.test(reqTxnId)
+    ? reqTxnId
+    : `TXN${Date.now()}${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+
   try {
-    const { epi, appkey, payload, reqTxnId } = req.body;
-
-    if (!epi || !appkey || !payload) {
-      return res.status(400).json({ error: "epi, appkey, and payload are required" });
-    }
-
-    const txnId = reqTxnId || `TXN${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
-
     const body = {
       appid: VALOR_APPID,
       appkey,
@@ -57,23 +62,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const text = await valorResponse.text();
     let data: any;
-    try {
-      data = JSON.parse(text);
-    } catch {
-      data = { raw: text };
-    }
+    try { data = JSON.parse(text); } catch { data = { raw: text }; }
 
     if (data.error_no && data.error_no !== "S00") {
-      return res.status(502).json({
-        error: data.msg || data.mesg || "Valor publish failed",
-        code: data.error_no,
-        details: data,
-      });
+      return errorResponse(res, 502, data.msg || data.mesg || "Payment provider error");
     }
 
     return res.status(200).json({ reqTxnId: txnId, response: data });
-  } catch (error: any) {
-    console.error("valor-terminal-publish error:", error);
-    return res.status(500).json({ error: error.message || "Internal error" });
+  } catch (error) {
+    return errorResponse(res, 500, "Internal error", error);
   }
 }
