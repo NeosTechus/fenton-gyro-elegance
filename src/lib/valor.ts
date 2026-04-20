@@ -141,12 +141,18 @@ export async function sendValorTransaction(
 
   const reqTxnId = publishData.reqTxnId;
 
+  // Valor wraps the terminal payload as { error_no, response: {...txn} } or
+  // { error_no, payload: {...} }. STATE may come back as a number or string.
+  const extractTxn = (data: any) =>
+    data?.response?.response || data?.response?.payload || data?.response;
+  const stateOf = (p: any) => (p?.STATE !== undefined ? String(p.STATE) : undefined);
+
   // Some publish responses may already include the final result
-  const immediate = publishData.response?.payload || publishData.response;
-  if (immediate?.STATE === "0" && immediate.MASKED_PAN) {
+  const immediate = extractTxn(publishData);
+  if (stateOf(immediate) === "0" && immediate.MASKED_PAN) {
     return immediate as ValorSuccessResponse;
   }
-  if (immediate?.STATE === "-1") {
+  if (stateOf(immediate) === "-1") {
     throw new Error((immediate as ValorFailureResponse).ERROR_MSG || "Transaction failed");
   }
 
@@ -164,14 +170,15 @@ export async function sendValorTransaction(
     const statusData = await statusRes.json();
     if (!statusRes.ok) continue;
 
-    const payload = statusData.response?.payload || statusData.response;
-    if (!payload) continue;
+    const txn = extractTxn(statusData);
+    if (!txn) continue;
 
-    if (payload.STATE === "0" && payload.MASKED_PAN) {
-      return payload as ValorSuccessResponse;
+    const state = stateOf(txn);
+    if (state === "0" && txn.MASKED_PAN) {
+      return txn as ValorSuccessResponse;
     }
-    if (payload.STATE === "-1") {
-      throw new Error((payload as ValorFailureResponse).ERROR_MSG || "Transaction failed");
+    if (state === "-1") {
+      throw new Error((txn as ValorFailureResponse).ERROR_MSG || "Transaction failed");
     }
   }
 

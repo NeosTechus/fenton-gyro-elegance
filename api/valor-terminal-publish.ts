@@ -19,6 +19,8 @@ const VALOR_API_URL = process.env.VALOR_API_URL;
 const VALOR_APPID = process.env.VALOR_APPID;
 const VALOR_CHANNEL_ID = process.env.VALOR_CHANNEL_ID;
 
+export const config = { maxDuration: 300 };
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   setCors(res, req.headers.origin as string | undefined);
   if (req.method === "OPTIONS") return res.status(204).end();
@@ -54,7 +56,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     };
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8_000);
+    const timeout = setTimeout(() => controller.abort(), 240_000);
     let valorResponse: Response;
     try {
       valorResponse = await fetch(VALOR_API_URL, {

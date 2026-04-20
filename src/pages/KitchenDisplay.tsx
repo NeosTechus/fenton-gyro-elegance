@@ -169,6 +169,8 @@ const KitchenDisplay = () => {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const alertIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pendingWebCountRef = useRef(0);
+  const seenPosKioskIdsRef = useRef<Set<string>>(new Set());
+  const didInitPosKioskRef = useRef(false);
 
   // Preload notification sound
   useEffect(() => {
@@ -214,6 +216,21 @@ const KitchenDisplay = () => {
     }
 
     pendingWebCountRef.current = pendingWebOrders.length;
+
+    // One-time chime for new POS/kiosk orders (auto-accepted as "received").
+    // Skip the very first render so existing orders don't ring on page load.
+    const posKioskOrders = orders.filter(
+      (o) => (o.source === "pos" || o.source === "kiosk") && o.status !== "completed" && o.status !== "rejected"
+    );
+    if (didInitPosKioskRef.current) {
+      const newOnes = posKioskOrders.filter((o) => !seenPosKioskIdsRef.current.has(o.id));
+      if (newOnes.length > 0 && soundEnabled) {
+        playNotificationSound();
+      }
+    } else {
+      didInitPosKioskRef.current = true;
+    }
+    seenPosKioskIdsRef.current = new Set(posKioskOrders.map((o) => o.id));
 
     return () => {
       if (alertIntervalRef.current) clearInterval(alertIntervalRef.current);
