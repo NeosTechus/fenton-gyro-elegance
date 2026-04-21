@@ -33,6 +33,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return errorResponse(res, 500, "Service unavailable");
   }
 
+  // Warmup ping — keeps the Vercel lambda hot so the first real publish
+  // doesn't pay a cold-start delay before the terminal is contacted.
+  if (req.body?.warmup === true) {
+    return res.status(200).json({ warm: true });
+  }
+
   const { epi, appkey, payload, reqTxnId } = req.body || {};
 
   if (!isEpi(epi)) return errorResponse(res, 400, "Invalid epi");

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate, Navigate } from "react-router-dom";
 import {
   ArrowLeft,
@@ -21,7 +21,7 @@ import { toast } from "sonner";
 import ModifierSelector, { getModifiersTotal, getSelectedModifierNames, getSelectedModifierDetails } from "@/components/ModifierSelector";
 import { useAuth } from "@/context/AuthContext";
 import { LogOut, ClipboardList } from "lucide-react";
-import { sendCreditSale, dollarsToCents } from "@/lib/valor";
+import { sendCreditSale, dollarsToCents, cancelValorTransaction, ValorCancelledError, warmupValor } from "@/lib/valor";
 import { ValorEPI, getEPIs } from "@/lib/valor-epi";
 import { createOrder, subscribeToOrders, markOrderPaid, updateOrderStatus } from "@/lib/orders";
 import { Order, OrderStatus } from "@/data/orders";
@@ -67,6 +67,13 @@ const POSPage = () => {
   const [splitPayment, setSplitPayment] = useState<{ orderId: string; cashAmount: string } | null>(null);
   const [posSplitMode, setPosSplitMode] = useState(false);
   const [posSplitCash, setPosSplitCash] = useState("");
+  const [inFlightTxnId, setInFlightTxnId] = useState<string | null>(null);
+  const [cashFallbackOpen, setCashFallbackOpen] = useState(false);
+  const switchedToCashRef = useRef(false);
+  const [unpaidInFlight, setUnpaidInFlight] = useState<{ orderId: string; txnId: string | null } | null>(null);
+  const [unpaidCashFallback, setUnpaidCashFallback] = useState<{ orderId: string; tag: string; total: number } | null>(null);
+  const [cashCollectConfirm, setCashCollectConfirm] = useState<{ orderId: string; tag: string; total: number } | null>(null);
+  const unpaidSwitchedRef = useRef<Set<string>>(new Set());
 
   // Real-time order history — all sources
   useEffect(() => {
@@ -76,6 +83,15 @@ const POSPage = () => {
     });
     return () => unsubscribe();
   }, []);
+
+  // Warm Valor lambdas on mount + every 4 min so first sale after idle
+  // doesn't pay a Vercel cold-start delay before the terminal is reached.
+  useEffect(() => {
+    if (!selectedEpi || !selectedAppKey) return;
+    warmupValor(selectedEpi, selectedAppKey);
+    const id = setInterval(() => warmupValor(selectedEpi, selectedAppKey), 4 * 60 * 1000);
+    return () => clearInterval(id);
+  }, [selectedEpi, selectedAppKey]);
 
   const totalItems = cart.reduce((s, c) => s + c.qty, 0);
   const totalPrice = cart.reduce((s, c) => s + (c.item.price + c.modifiersTotal) * c.qty, 0);
@@ -133,6 +149,7 @@ const POSPage = () => {
 
   const handleCheckout = async () => {
     if (cart.length === 0) return;
+    switchedToCashRef.current = false;
     setIsProcessing(true);
     try {
       const totalWithTax = totalPrice * 1.08;
@@ -150,24 +167,131 @@ const POSPage = () => {
         lineItems,
         epi: selectedEpi,
         appkey: selectedAppKey,
+        onTxnId: (id) => setInFlightTxnId(id),
       });
 
-      await saveOrder("card", {
-        auth_code: result.CODE,
-        masked_pan: result.MASKED_PAN,
-        rrn: result.RRN,
-      });
-
-      toast.success(
-        `Payment approved — ${result.ISSUER} ${result.MASKED_PAN} | Auth: ${result.CODE}`,
-        { duration: 2000 }
-      );
+      const tenderedCash = /cash/i.test(String(result.TRAN_TYPE || "")) || !result.MASKED_PAN;
+      if (tenderedCash) {
+        await saveOrder("cash");
+        toast.success(`Cash collected at terminal — $${(totalPrice * 1.08).toFixed(2)}`, { duration: 2000 });
+      } else {
+        await saveOrder("card", {
+          auth_code: result.CODE,
+          masked_pan: result.MASKED_PAN,
+          rrn: result.RRN,
+        });
+        toast.success(
+          `Payment approved — ${result.ISSUER} ${result.MASKED_PAN} | Auth: ${result.CODE}`,
+          { duration: 2000 }
+        );
+      }
       resetOrder();
     } catch (error) {
+      if (switchedToCashRef.current) return; // user already chose cash; ignore late cancel
+      if (error instanceof ValorCancelledError) {
+        setCashFallbackOpen(true);
+        return;
+      }
       console.error("POS checkout error:", error);
       toast.error(error instanceof Error ? error.message : "Payment failed");
     } finally {
-      setIsProcessing(false);
+      if (!switchedToCashRef.current) {
+        setIsProcessing(false);
+        setInFlightTxnId(null);
+      }
+    }
+  };
+
+  const handleSwitchToCash = async () => {
+    switchedToCashRef.current = true;
+    const toCancel = inFlightTxnId;
+    setInFlightTxnId(null);
+    setIsProcessing(false);
+    if (toCancel) {
+      // Fire-and-forget cancel; terminal will abort. Don't block the UI.
+      cancelValorTransaction(selectedEpi, selectedAppKey, toCancel);
+    }
+    try {
+      await saveOrder("cash");
+      toast.success("Order saved as cash payment", { duration: 2000 });
+      resetOrder();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to save order");
+    }
+  };
+
+  const handleUnpaidCardPay = async (order: Order, tag: string) => {
+    setUnpaidInFlight({ orderId: order.id, txnId: null });
+    try {
+      const result = await sendCreditSale({
+        amountCents: dollarsToCents(order.total),
+        tipEnabled: true,
+        printReceipt: true,
+        invoiceNumber: order.id,
+        epi: selectedEpi,
+        appkey: selectedAppKey,
+        onTxnId: (id) => setUnpaidInFlight({ orderId: order.id, txnId: id }),
+      });
+      await markOrderPaid(order.id);
+      const tenderedCash = /cash/i.test(String(result.TRAN_TYPE || "")) || !result.MASKED_PAN;
+      if (tenderedCash) {
+        toast.success(`Cash collected at terminal for ${tag}`, { duration: 2000 });
+      } else {
+        toast.success(`Card payment for ${tag} — ${result.ISSUER} ${result.MASKED_PAN}`, { duration: 2000 });
+      }
+      setExpandedUnpaidOrder(null);
+    } catch (err) {
+      if (unpaidSwitchedRef.current.has(order.id)) {
+        unpaidSwitchedRef.current.delete(order.id);
+        return;
+      }
+      if (err instanceof ValorCancelledError) {
+        setUnpaidCashFallback({ orderId: order.id, tag, total: order.total });
+        return;
+      }
+      toast.error(err instanceof Error ? err.message : "Card payment failed");
+    } finally {
+      if (!unpaidSwitchedRef.current.has(order.id)) {
+        setUnpaidInFlight((cur) => (cur?.orderId === order.id ? null : cur));
+      }
+    }
+  };
+
+  const handleUnpaidSwitchToCash = async (orderId: string, tag: string) => {
+    unpaidSwitchedRef.current.add(orderId);
+    const txnId = unpaidInFlight?.orderId === orderId ? unpaidInFlight.txnId : null;
+    setUnpaidInFlight(null);
+    if (txnId) cancelValorTransaction(selectedEpi, selectedAppKey, txnId);
+    try {
+      await markOrderPaid(orderId);
+      toast.success(`Cash payment for ${tag}`, { duration: 2000 });
+      setExpandedUnpaidOrder(null);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to mark paid");
+    }
+  };
+
+  const handleConfirmUnpaidCashFallback = async () => {
+    if (!unpaidCashFallback) return;
+    const { orderId, tag } = unpaidCashFallback;
+    setUnpaidCashFallback(null);
+    try {
+      await markOrderPaid(orderId);
+      toast.success(`Cash payment for ${tag}`, { duration: 2000 });
+      setExpandedUnpaidOrder(null);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to mark paid");
+    }
+  };
+
+  const handleConfirmCashFallback = async () => {
+    setCashFallbackOpen(false);
+    try {
+      await saveOrder("cash");
+      toast.success("Order saved as cash payment", { duration: 2000 });
+      resetOrder();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to save order");
     }
   };
 
@@ -460,37 +584,27 @@ const POSPage = () => {
                           ) : (
                           <div className="grid grid-cols-4 gap-1.5 px-3 py-2 bg-amber-50/50">
                             <button
-                              onClick={async () => {
-                                await markOrderPaid(order.id);
-                                toast.success(`Cash collected for ${tag}`, { duration: 2000 });
-                                setExpandedUnpaidOrder(null);
-                              }}
+                              onClick={() => setCashCollectConfirm({ orderId: order.id, tag, total: order.total })}
                               className="py-2.5 bg-emerald-600 text-white text-[10px] font-sans font-bold uppercase tracking-wider rounded-sm hover:bg-emerald-700 active:scale-[0.95] transition-all"
                             >
                               💵 Cash
                             </button>
-                            <button
-                              onClick={async () => {
-                                try {
-                                  const result = await sendCreditSale({
-                                    amountCents: dollarsToCents(order.total),
-                                    tipEnabled: true,
-                                    printReceipt: true,
-                                    invoiceNumber: order.id,
-                                    epi: selectedEpi,
-        appkey: selectedAppKey,
-                                  });
-                                  await markOrderPaid(order.id);
-                                  toast.success(`Card payment for ${tag} — ${result.ISSUER} ${result.MASKED_PAN}`, { duration: 2000 });
-                                } catch (err) {
-                                  toast.error(err instanceof Error ? err.message : "Card payment failed");
-                                }
-                                setExpandedUnpaidOrder(null);
-                              }}
-                              className="py-2.5 bg-blue-600 text-white text-[10px] font-sans font-bold uppercase tracking-wider rounded-sm hover:bg-blue-700 active:scale-[0.95] transition-all"
-                            >
-                              💳 Card
-                            </button>
+                            {unpaidInFlight?.orderId === order.id ? (
+                              <button
+                                onClick={() => handleUnpaidSwitchToCash(order.id, tag)}
+                                className="py-2.5 bg-primary text-primary-foreground text-[10px] font-sans font-bold uppercase tracking-wider rounded-sm hover:opacity-90 active:scale-[0.95] transition-all flex items-center justify-center gap-1"
+                              >
+                                <Banknote className="w-3 h-3" /> Pay Cash Instead
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleUnpaidCardPay(order, tag)}
+                                disabled={!!unpaidInFlight}
+                                className="py-2.5 bg-blue-600 text-white text-[10px] font-sans font-bold uppercase tracking-wider rounded-sm hover:bg-blue-700 active:scale-[0.95] transition-all disabled:opacity-50"
+                              >
+                                💳 Card
+                              </button>
+                            )}
                             <button
                               onClick={() => setSplitPayment({ orderId: order.id, cashAmount: (order.total / 2).toFixed(2) })}
                               className="py-2.5 bg-violet-600 text-white text-[10px] font-sans font-bold uppercase tracking-wider rounded-sm hover:bg-violet-700 active:scale-[0.95] transition-all"
@@ -756,6 +870,19 @@ const POSPage = () => {
                     </button>
                   </div>
                 </div>
+              ) : isProcessing ? (
+                <div className="space-y-2">
+                  <div className="py-3 px-3 rounded-md bg-accent/15 border border-accent/40 flex items-center gap-2 text-xs font-sans font-semibold text-accent-foreground">
+                    <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                    <span>Waiting for terminal — total ${(totalPrice * 1.08).toFixed(2)}</span>
+                  </div>
+                  <button
+                    onClick={handleSwitchToCash}
+                    className="w-full py-3 bg-primary text-primary-foreground font-sans font-bold text-sm uppercase tracking-wider rounded-md flex items-center justify-center gap-2 hover:opacity-90 active:scale-[0.96] transition-all shadow-md"
+                  >
+                    <Banknote className="w-4 h-4" /> Pay Cash Instead
+                  </button>
+                </div>
               ) : (
                 <>
                   <div className="grid grid-cols-3 gap-2">
@@ -764,11 +891,7 @@ const POSPage = () => {
                       disabled={isProcessing}
                       className="py-4 bg-accent text-accent-foreground font-sans font-bold text-sm uppercase tracking-wider rounded-md flex items-center justify-center gap-2 hover:opacity-90 active:scale-[0.96] transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-md"
                     >
-                      {isProcessing ? (
-                        <><Loader2 className="w-4 h-4 animate-spin" /> Wait…</>
-                      ) : (
-                        <><CreditCard className="w-4 h-4" /> Card</>
-                      )}
+                      <CreditCard className="w-4 h-4" /> Card
                     </button>
                     <button
                       onClick={async () => {
@@ -799,6 +922,94 @@ const POSPage = () => {
 
       {/* Item detail modal */}
       {selectedItem && <ItemDetailModal />}
+
+      {/* Confirm cash collection for pending kiosk/unpaid cash order */}
+      {cashCollectConfirm && (
+        <div className="fixed inset-0 bg-foreground/40 z-[60] flex items-center justify-center p-4">
+          <div className="bg-background rounded-md shadow-2xl max-w-sm w-full p-5">
+            <h3 className="font-display text-lg font-bold text-foreground mb-1">Cash collected?</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              Confirm you received <strong>${cashCollectConfirm.total.toFixed(2)}</strong> in cash for order <strong>{cashCollectConfirm.tag}</strong>.
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={async () => {
+                  const { orderId, tag } = cashCollectConfirm;
+                  setCashCollectConfirm(null);
+                  try {
+                    await markOrderPaid(orderId);
+                    toast.success(`Cash collected for ${tag}`, { duration: 2000 });
+                    setExpandedUnpaidOrder(null);
+                  } catch (e) {
+                    toast.error(e instanceof Error ? e.message : "Failed to mark paid");
+                  }
+                }}
+                className="py-2.5 bg-emerald-600 text-white font-sans font-bold text-xs uppercase tracking-wider rounded-sm hover:bg-emerald-700 active:scale-[0.96]"
+              >
+                Yes — collected
+              </button>
+              <button
+                onClick={() => setCashCollectConfirm(null)}
+                className="py-2.5 bg-muted text-muted-foreground font-sans font-bold text-xs uppercase tracking-wider rounded-sm hover:bg-muted/80 active:scale-[0.96]"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Cash fallback for unpaid order card payment */}
+      {unpaidCashFallback && (
+        <div className="fixed inset-0 bg-foreground/40 z-[60] flex items-center justify-center p-4">
+          <div className="bg-background rounded-md shadow-2xl max-w-sm w-full p-5">
+            <h3 className="font-display text-lg font-bold text-foreground mb-1">Card payment cancelled</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              Order <strong>{unpaidCashFallback.tag}</strong> — did the customer pay <strong>${unpaidCashFallback.total.toFixed(2)}</strong> in cash instead?
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={handleConfirmUnpaidCashFallback}
+                className="py-2.5 bg-primary text-primary-foreground font-sans font-bold text-xs uppercase tracking-wider rounded-sm hover:opacity-90 active:scale-[0.96]"
+              >
+                Yes — save as cash
+              </button>
+              <button
+                onClick={() => setUnpaidCashFallback(null)}
+                className="py-2.5 bg-muted text-muted-foreground font-sans font-bold text-xs uppercase tracking-wider rounded-sm hover:bg-muted/80 active:scale-[0.96]"
+              >
+                No — keep unpaid
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Cash fallback dialog — shown when terminal txn cancels */}
+      {cashFallbackOpen && (
+        <div className="fixed inset-0 bg-foreground/40 z-[60] flex items-center justify-center p-4">
+          <div className="bg-background rounded-md shadow-2xl max-w-sm w-full p-5">
+            <h3 className="font-display text-lg font-bold text-foreground mb-1">Card payment cancelled</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              Did the customer pay <strong>${(totalPrice * 1.08).toFixed(2)}</strong> in cash instead?
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={handleConfirmCashFallback}
+                className="py-2.5 bg-primary text-primary-foreground font-sans font-bold text-xs uppercase tracking-wider rounded-sm hover:opacity-90 active:scale-[0.96]"
+              >
+                Yes — save as cash
+              </button>
+              <button
+                onClick={() => setCashFallbackOpen(false)}
+                className="py-2.5 bg-muted text-muted-foreground font-sans font-bold text-xs uppercase tracking-wider rounded-sm hover:bg-muted/80 active:scale-[0.96]"
+              >
+                No — discard
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Order history slide-over */}
       {showHistory && (

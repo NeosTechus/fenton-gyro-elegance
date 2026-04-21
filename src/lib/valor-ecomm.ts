@@ -52,7 +52,9 @@ export async function createValorCheckout(
   const data = await response.json();
 
   if (!response.ok) {
-    throw new Error(data.error || "Failed to create Valor checkout session");
+    const parts = [data.error || "Failed to create Valor checkout session"];
+    if (data.code) parts.push(`(${data.code})`);
+    throw new Error(parts.join(" "));
   }
 
   return data.url;

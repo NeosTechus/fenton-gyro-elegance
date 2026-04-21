@@ -113,10 +113,54 @@ const POLL_TIMEOUT_MS = 180_000; // 3 minutes
  * Sends a transaction to the selected Valor terminal via Valor Connect cloud.
  * Requires the terminal's EPI and APP KEY (from the Payment Terminals settings).
  */
+export async function cancelValorTransaction(
+  epi: string,
+  appkey: string,
+  reqTxnId: string,
+): Promise<void> {
+  if (!epi || !appkey || !reqTxnId) return;
+  try {
+    const res = await fetch("/api/valor-terminal-cancel", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ epi, appkey, reqTxnId }),
+    });
+    const data = await res.json().catch(() => ({}));
+    console.log("[valor-cancel]", { ok: res.ok, status: res.status, data });
+  } catch (e) {
+    console.error("[valor-cancel] failed", e);
+  }
+}
+
+/**
+ * Warms both Vercel serverless lambdas (publish + status) so the first
+ * real transaction doesn't pay a cold-start delay before reaching the
+ * terminal. Call on checkout-screen mount. Fire-and-forget.
+ */
+export function warmupValor(epi: string, appkey: string): void {
+  if (!epi || !appkey) return;
+  const opts = (body: unknown): RequestInit => ({
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(8000),
+  });
+  fetch("/api/valor-terminal-publish", opts({ warmup: true })).catch(() => {});
+  fetch("/api/valor-terminal-status", opts({ epi, appkey, reqTxnId: `PING${Date.now()}` })).catch(() => {});
+}
+
+export class ValorCancelledError extends Error {
+  constructor(message = "Transaction Cancelled") {
+    super(message);
+    this.name = "ValorCancelledError";
+  }
+}
+
 export async function sendValorTransaction(
   request: ValorSaleRequest,
   epi: string,
-  appkey: string
+  appkey: string,
+  onTxnId?: (reqTxnId: string) => void,
 ): Promise<ValorSuccessResponse> {
   if (isTestMode) {
     await sleep(2000);
@@ -140,6 +184,7 @@ export async function sendValorTransaction(
   }
 
   const reqTxnId = publishData.reqTxnId;
+  if (reqTxnId && onTxnId) onTxnId(reqTxnId);
 
   // Valor wraps the terminal payload as { error_no, response: {...txn} } or
   // { error_no, payload: {...} }. STATE may come back as a number or string.
@@ -147,9 +192,23 @@ export async function sendValorTransaction(
     data?.response?.response || data?.response?.payload || data?.response;
   const stateOf = (p: any) => (p?.STATE !== undefined ? String(p.STATE) : undefined);
 
+  // A response is final when STATE=0 AND it carries a positive completion
+  // signal — either MASKED_PAN (card sale) or a cash-tender marker
+  // (TRAN_TYPE="Cash" / TRAN_MODE="6"). We avoid looser heuristics because
+  // intermediate polling responses can also carry STATE=0 with partial
+  // fields, and returning early leaves the txn live on the terminal —
+  // which causes the next publish to fail with PROCESSING ERROR.
+  const isFinalSuccess = (p: any) => {
+    if (stateOf(p) !== "0") return false;
+    if (p?.MASKED_PAN) return true;
+    if (/cash/i.test(String(p?.TRAN_TYPE || ""))) return true;
+    if (String(p?.TRAN_MODE || "") === "6") return true;
+    return false;
+  };
+
   // Some publish responses may already include the final result
   const immediate = extractTxn(publishData);
-  if (stateOf(immediate) === "0" && immediate.MASKED_PAN) {
+  if (isFinalSuccess(immediate)) {
     return immediate as ValorSuccessResponse;
   }
   if (stateOf(immediate) === "-1") {
@@ -171,14 +230,17 @@ export async function sendValorTransaction(
     if (!statusRes.ok) continue;
 
     const txn = extractTxn(statusData);
+    console.log("[valor-poll]", { reqTxnId, raw: statusData, txn });
     if (!txn) continue;
 
     const state = stateOf(txn);
-    if (state === "0" && txn.MASKED_PAN) {
+    if (isFinalSuccess(txn)) {
       return txn as ValorSuccessResponse;
     }
     if (state === "-1") {
-      throw new Error((txn as ValorFailureResponse).ERROR_MSG || "Transaction failed");
+      const msg = (txn as ValorFailureResponse).ERROR_MSG || "Transaction failed";
+      if (/cancel/i.test(msg)) throw new ValorCancelledError(msg);
+      throw new Error(msg);
     }
   }
 
@@ -196,6 +258,7 @@ export interface ValorSaleOptions {
   lineItems?: { product_code: string; quantity: string; total: string }[];
   epi: string;
   appkey: string;
+  onTxnId?: (reqTxnId: string) => void;
 }
 
 export function sendCreditSale(opts: ValorSaleOptions) {
@@ -211,8 +274,10 @@ export function sendCreditSale(opts: ValorSaleOptions) {
   };
   if (opts.tipAmountCents) request.TIP_AMOUNT = opts.tipAmountCents;
   if (opts.invoiceNumber) request.INVOICENUMBER = opts.invoiceNumber;
-  if (opts.lineItems) request.lineItems = opts.lineItems;
-  return sendValorTransaction(request, opts.epi, opts.appkey);
+  // NOTE: lineItems intentionally omitted — when sent, Valor's terminal
+  // recomputes the total from items and may add its own configured tax
+  // on top, causing the terminal display to differ from the POS UI.
+  return sendValorTransaction(request, opts.epi, opts.appkey, opts.onTxnId);
 }
 
 export function sendVoid(tranNo: string, epi: string, appkey: string) {

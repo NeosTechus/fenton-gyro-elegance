@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import { menuItems, categories, MenuItem } from "@/data/menu";
 import { toast } from "sonner";
-import { sendCreditSale, dollarsToCents } from "@/lib/valor";
+import { sendCreditSale, dollarsToCents, warmupValor } from "@/lib/valor";
 import { ValorEPI, getEPIs } from "@/lib/valor-epi";
 import { createOrder } from "@/lib/orders";
 import heroImage from "@/assets/hero-food.jpg";
@@ -67,6 +67,14 @@ const KioskPage = () => {
 
   const totalItems = cart.reduce((s, c) => s + c.qty, 0);
   const totalPrice = cart.reduce((s, c) => s + (c.item.price + c.modifiersTotal) * c.qty, 0);
+
+  // Warm Valor lambdas as soon as a cart exists, so the first real publish
+  // on the checkout screen doesn't pay a Vercel cold-start delay.
+  useEffect(() => {
+    if ((step === "cart" || step === "customer-info") && selectedEpi && selectedAppKey) {
+      warmupValor(selectedEpi, selectedAppKey);
+    }
+  }, [step, selectedEpi, selectedAppKey]);
 
   // ── Inactivity timeout: reset to welcome after 2 min of no touch ──
   const inactivityTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -141,7 +149,12 @@ const KioskPage = () => {
       price: c.item.price + c.modifiersTotal,
     }));
 
-  const saveKioskOrder = async (payment: "card" | "cash", extra?: { auth_code?: string; masked_pan?: string; rrn?: string }) => {
+  const saveKioskOrder = async (
+    payment: "card" | "cash",
+    extra?: { auth_code?: string; masked_pan?: string; rrn?: string; paid?: boolean },
+  ) => {
+    const { paid, ...rest } = extra || {};
+    const isPaid = paid ?? payment === "card";
     await createOrder({
       customer_name: `${firstName.trim()} ${lastName.trim()}`.trim() || (orderType === "dine-in" ? "Dine-In Customer" : "Take-Out Customer"),
       customer_email: customerEmail.trim(),
@@ -152,9 +165,9 @@ const KioskPage = () => {
       notes: `Kiosk ${orderType} order`,
       source: "kiosk",
       payment,
-      payment_status: payment === "cash" ? "unpaid" : "paid",
+      payment_status: isPaid ? "paid" : "unpaid",
       terminal_epi: selectedEpi || undefined,
-      ...extra,
+      ...rest,
     });
   };
 
@@ -178,13 +191,18 @@ const KioskPage = () => {
         appkey: selectedAppKey,
       });
 
-      await saveKioskOrder("card", {
-        auth_code: result.CODE,
-        masked_pan: result.MASKED_PAN,
-        rrn: result.RRN,
-      });
-
-      toast.success("Payment approved! Thank you.", { duration: 1000 });
+      const tenderedCash = /cash/i.test(String(result.TRAN_TYPE || "")) || !result.MASKED_PAN;
+      if (tenderedCash) {
+        await saveKioskOrder("cash");
+        toast.success("Order placed! Please pay cash at the counter.", { duration: 1500 });
+      } else {
+        await saveKioskOrder("card", {
+          auth_code: result.CODE,
+          masked_pan: result.MASKED_PAN,
+          rrn: result.RRN,
+        });
+        toast.success("Payment approved! Thank you.", { duration: 1000 });
+      }
       resetOrder();
     } catch (error) {
       console.error("Kiosk checkout error:", error);
@@ -206,6 +224,7 @@ const KioskPage = () => {
     setCart([]);
     setSearchQuery("");
     setSelectedMods({});
+    setIsProcessing(false);
   };
 
   const FloatingCartButton = () => {

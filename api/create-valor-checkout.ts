@@ -25,14 +25,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
   }
 
-  // Validate secrets
+  // Validate secrets. VALOR_EPAGE_EPI is the Virtual Terminal / ePage EPI
+  // for website orders; distinct from VALOR_EPI which is the physical
+  // terminal EPI used by POS/Kiosk. Falls back to VALOR_EPI so older
+  // single-EPI deployments keep working.
   const appId = process.env.VALOR_APPID;
-  const appKey = process.env.VALOR_APPKEY;
-  const epi = process.env.VALOR_EPI;
+  const appKey = process.env.VALOR_EPAGE_APPKEY || process.env.VALOR_APPKEY;
+  const epi = process.env.VALOR_EPAGE_EPI || process.env.VALOR_EPI;
 
   if (!appId || !appKey || !epi) {
     return res.status(500).json({
-      error: "Valor credentials not configured. Set VALOR_APPID, VALOR_APPKEY, VALOR_EPI in Vercel env vars.",
+      error: "Valor credentials not configured. Set VALOR_APPID, VALOR_EPAGE_APPKEY, VALOR_EPAGE_EPI in Vercel env vars.",
     });
   }
 
@@ -86,10 +89,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (phone) formParams.append("phone", phone);
     // Don't send email — prevents Valor from sending invoice email
     // Customer gets redirected directly to payment page instead
-    formParams.append("invoice_no", sanitize(invoiceNumber) || orderId);
+    // Append a short timestamp suffix so every attempt is unique on Valor's
+    // side — prevents E22 EPAGE URL GENERATION FAILED when a customer
+    // retries checkout while a previous session is still open.
+    const baseInvoice = sanitize(invoiceNumber) || orderId;
+    const uniqueInvoice = `${baseInvoice}-${Date.now().toString().slice(-6)}`;
+    formParams.append("invoice_no", uniqueInvoice);
     formParams.append("product", sanitize(productDescription) || "Order");
     formParams.append("descriptor", "Fenton Gyro");
     formParams.append("customer_name", sanitize(customerName));
+
+    // Debug — masked to avoid leaking full key in logs
+    const mask = (s: string) => s.length <= 6 ? "***" : `${s.slice(0, 3)}…${s.slice(-3)} (len=${s.length})`;
+    console.log("[epage] sending:", {
+      url: VALOR_API_URL,
+      appid: mask(appId),
+      appkey: mask(appKey),
+      epi,
+      amount,
+    });
 
     const valorResponse = await fetch(VALOR_API_URL, {
       method: "POST",
