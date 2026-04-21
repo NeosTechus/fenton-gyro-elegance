@@ -898,12 +898,28 @@ const POSPage = () => {
                     <Loader2 className="w-4 h-4 animate-spin shrink-0" />
                     <span>Waiting for terminal — total ${computeTotals(totalPrice, "card").total.toFixed(2)}</span>
                   </div>
-                  <button
-                    onClick={() => setSwitchToCashConfirm(true)}
-                    className="w-full py-3 bg-primary text-primary-foreground font-sans font-bold text-sm uppercase tracking-wider rounded-md flex items-center justify-center gap-2 hover:opacity-90 active:scale-[0.96] transition-all shadow-md"
-                  >
-                    <Banknote className="w-4 h-4" /> Pay Cash Instead
-                  </button>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={() => setSwitchToCashConfirm(true)}
+                      className="py-3 bg-primary text-primary-foreground font-sans font-bold text-sm uppercase tracking-wider rounded-md flex items-center justify-center gap-2 hover:opacity-90 active:scale-[0.96] transition-all shadow-md"
+                    >
+                      <Banknote className="w-4 h-4" /> Pay Cash Instead
+                    </button>
+                    <button
+                      onClick={() => {
+                        switchedToCashRef.current = true; // stop the in-flight handler from firing error toast
+                        const toCancel = inFlightTxnId;
+                        setInFlightTxnId(null);
+                        setIsProcessing(false);
+                        if (toCancel) cancelValorTransaction(selectedEpi, selectedAppKey, toCancel);
+                        setPosSplitMode(true);
+                        setPosSplitCash((computeTotals(totalPrice, "cash").total / 2).toFixed(2));
+                      }}
+                      className="py-3 bg-violet-600 text-white font-sans font-bold text-sm uppercase tracking-wider rounded-md flex items-center justify-center gap-2 hover:opacity-90 active:scale-[0.96] transition-all shadow-md"
+                    >
+                      ✂️ Split Instead
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <>
