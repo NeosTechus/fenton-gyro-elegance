@@ -191,6 +191,13 @@ const OnlineOrder = () => {
           </div>
         </div>
 
+        <div className="mb-6 px-4 py-3 bg-amber-50 border border-amber-200 rounded-sm text-amber-900 text-xs leading-relaxed">
+          <strong className="font-semibold">Allergen notice:</strong> The tags shown are a guide based on
+          primary ingredients. All items are prepared in a shared kitchen, so cross-contact is possible.
+          If you have a severe allergy, please call us at{" "}
+          <a href="tel:6366001333" className="underline font-medium">(636) 600-1333</a> before ordering.
+        </div>
+
         <div className="grid lg:grid-cols-5 gap-12">
           {/* Menu items */}
           <div className="lg:col-span-3 space-y-10">
