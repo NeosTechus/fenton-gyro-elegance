@@ -29,3 +29,4 @@ dist-ssr
 *.sw?
 files/
 .env*.local
+.vercel
