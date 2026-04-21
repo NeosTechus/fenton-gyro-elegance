@@ -99,6 +99,23 @@ export async function updatePrepTime(
   await updateDoc(doc(db, "orders", orderId), { prep_time: prepTime });
 }
 
+/**
+ * Save Valor transaction references to an order. Called on the track page
+ * after an ePage redirect so the order doc has the rrn/auth_code needed to
+ * void the payment if the customer cancels.
+ */
+export async function saveOrderValorRefs(
+  orderId: string,
+  refs: { rrn?: string; auth_code?: string; masked_pan?: string },
+): Promise<void> {
+  if (!isFirebaseConfigured || !db) return;
+  const clean = Object.fromEntries(
+    Object.entries(refs).filter(([, v]) => typeof v === "string" && v.length > 0),
+  );
+  if (Object.keys(clean).length === 0) return;
+  await updateDoc(doc(db, "orders", orderId), clean);
+}
+
 // ── Real-time Listener — Today's Orders ──────────────────────────────────
 
 function firestoreToOrder(id: string, data: any): Order {

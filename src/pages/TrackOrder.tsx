@@ -1,9 +1,9 @@
-import { useState, useEffect, useCallback } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { useParams, useSearchParams, Link } from "react-router-dom";
 import { doc, onSnapshot, Timestamp } from "firebase/firestore";
 import { db, isFirebaseConfigured } from "@/lib/firebase";
 import { Order, OrderStatus } from "@/data/orders";
-import { updateOrderStatus } from "@/lib/orders";
+import { updateOrderStatus, saveOrderValorRefs } from "@/lib/orders";
 import { toast } from "sonner";
 import {
   ArrowLeft,
@@ -34,11 +34,41 @@ const STATUS_INDEX: Record<string, number> = {
   completed: 4,
 };
 
+// Cancellation window in seconds — customers can self-cancel only while the
+// order is still "pending" (chef hasn't accepted yet). Kept short so it
+// rarely overlaps with chef acceptance.
+const CANCEL_WINDOW_SECONDS = 30;
+
 const TrackOrder = () => {
   const { orderId } = useParams<{ orderId: string }>();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  const valorRefsSavedRef = useRef(false);
+
+  // On first load after Valor ePage redirect, Valor may append rrn / auth_code
+  // / card_last4 as query params. Persist them to the order doc so we can
+  // void the payment if the customer cancels. Runs once per mount.
+  useEffect(() => {
+    if (!orderId || valorRefsSavedRef.current) return;
+    const rrn = searchParams.get("rrn") || undefined;
+    const auth_code =
+      searchParams.get("auth_code") || searchParams.get("authCode") || undefined;
+    const masked_pan =
+      searchParams.get("card_last4") || searchParams.get("masked_pan") || undefined;
+    if (!rrn && !auth_code && !masked_pan) return;
+    valorRefsSavedRef.current = true;
+    saveOrderValorRefs(orderId, { rrn, auth_code, masked_pan }).catch((err) =>
+      console.error("Failed to save Valor refs:", err),
+    );
+    // Strip the sensitive params from the URL so they aren't shared/bookmarked
+    const next = new URLSearchParams(searchParams);
+    ["rrn", "auth_code", "authCode", "card_last4", "masked_pan"].forEach((k) =>
+      next.delete(k),
+    );
+    setSearchParams(next, { replace: true });
+  }, [orderId, searchParams, setSearchParams]);
 
   useEffect(() => {
     if (!orderId || !isFirebaseConfigured || !db) {
@@ -72,7 +102,9 @@ const TrackOrder = () => {
             created_at: createdAt,
             source: data.source,
             payment: data.payment,
-          });
+            rrn: data.rrn,
+            auth_code: data.auth_code,
+          } as Order & { rrn?: string; auth_code?: string });
           setNotFound(false);
         } else {
           setNotFound(true);
@@ -92,38 +124,65 @@ const TrackOrder = () => {
   const currentStep = order ? STATUS_INDEX[order.status] ?? 0 : 0;
   const isCancelled = order?.status === "cancelled";
 
-  // Cancel window — 60 seconds after order placed
+  // Cancel window — customer can only cancel while status is "pending"
+  // (chef hasn't accepted yet) AND within CANCEL_WINDOW_SECONDS.
   const [cancelTimeLeft, setCancelTimeLeft] = useState(0);
   const [cancelling, setCancelling] = useState(false);
+  const canCancel = order?.status === "pending";
 
   useEffect(() => {
-    if (!order || isCancelled || order.status === "completed") return;
-
+    if (!order || !canCancel) {
+      setCancelTimeLeft(0);
+      return;
+    }
     const orderTime = new Date(order.created_at).getTime();
-    const cancelDeadline = orderTime + 60 * 1000; // 1 minute
-
+    const cancelDeadline = orderTime + CANCEL_WINDOW_SECONDS * 1000;
     const tick = () => {
       const remaining = Math.max(0, Math.ceil((cancelDeadline - Date.now()) / 1000));
       setCancelTimeLeft(remaining);
     };
-
     tick();
     const interval = setInterval(tick, 1000);
     return () => clearInterval(interval);
-  }, [order, isCancelled]);
+  }, [order, canCancel]);
 
   const handleCancel = useCallback(async () => {
-    if (!order || !orderId || cancelTimeLeft <= 0) return;
+    if (!order || !orderId || cancelTimeLeft <= 0 || !canCancel) return;
     setCancelling(true);
     try {
+      // Try to void the Valor payment first. If we don't have an rrn yet,
+      // the server still attempts with invoice_no — some configs support it.
+      const orderWithRefs = order as Order & { rrn?: string; auth_code?: string };
+      let voided = false;
+      try {
+        const res = await fetch("/api/valor-void", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            orderId,
+            rrn: orderWithRefs.rrn,
+            authCode: orderWithRefs.auth_code,
+            amount: order.total.toFixed(2),
+          }),
+        });
+        voided = res.ok;
+        if (!res.ok) console.warn("Valor void failed:", await res.text().catch(() => ""));
+      } catch (err) {
+        console.warn("Valor void network error:", err);
+      }
+
       await updateOrderStatus(orderId, "cancelled");
-      toast.success("Order cancelled. Your refund will be processed shortly.");
+      toast.success(
+        voided
+          ? "Order cancelled. Your refund is on its way."
+          : "Order cancelled. Please call (636) 600-1333 to confirm your refund.",
+      );
     } catch {
       toast.error("Failed to cancel order. Please call (636) 600-1333.");
     } finally {
       setCancelling(false);
     }
-  }, [order, orderId, cancelTimeLeft]);
+  }, [order, orderId, cancelTimeLeft, canCancel]);
 
   return (
     <>
@@ -315,8 +374,8 @@ const TrackOrder = () => {
               </div>
 
               {/* Contact */}
-              {/* Cancel button — available for 60 seconds after order placed */}
-              {cancelTimeLeft > 0 && !isCancelled && order.status !== "completed" && (
+              {/* Cancel button — only while status is "pending" and within the window */}
+              {canCancel && cancelTimeLeft > 0 && (
                 <div className="mt-6 bg-red-50 border border-red-200 rounded-sm p-4 text-center">
                   <p className="text-xs text-red-600 mb-2">
                     Changed your mind? You can cancel within <span className="font-bold">{cancelTimeLeft}s</span>
