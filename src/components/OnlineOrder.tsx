@@ -4,6 +4,7 @@ import { Check, Minus, Plus, ShoppingBag, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { createValorCheckout } from "@/lib/valor-ecomm";
 import { createOrder } from "@/lib/orders";
+import { isAcceptingOnlineOrders, orderingClosedMessage } from "@/lib/hours";
 
 import { menuItems as allMenuItems, categories as allCategories } from "@/data/menu";
 
@@ -22,6 +23,15 @@ const OnlineOrder = () => {
   const [formData, setFormData] = useState({ name: "", phone: "", email: "", address: "", notes: "" });
   const [submitted, setSubmitted] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isOpen, setIsOpen] = useState(() => isAcceptingOnlineOrders());
+
+  // Re-check open/closed every 30s so the UI flips at the cutoff without reload
+  useEffect(() => {
+    const tick = () => setIsOpen(isAcceptingOnlineOrders());
+    tick();
+    const id = setInterval(tick, 30_000);
+    return () => clearInterval(id);
+  }, []);
 
   // Reset the processing state when the page becomes visible again — the
   // user hit back from Valor checkout (bfcache restore or fresh mount).
@@ -69,6 +79,10 @@ const OnlineOrder = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isAcceptingOnlineOrders()) {
+      toast.error(orderingClosedMessage());
+      return;
+    }
     if (totalItems === 0) {
       toast.error("Please add items to your order");
       return;
@@ -316,16 +330,23 @@ const OnlineOrder = () => {
                   onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
                   className="w-full px-4 py-2.5 bg-card border border-border rounded-sm text-sm font-sans text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-primary/40 transition-shadow resize-none"
                 />
+                {!isOpen && (
+                  <div className="w-full px-4 py-3 bg-amber-50 border border-amber-200 rounded-sm text-amber-900 text-sm text-center">
+                    {orderingClosedMessage()}
+                  </div>
+                )}
                 <button
                   type="submit"
                   className="w-full py-3 bg-accent text-accent-foreground font-sans font-semibold text-sm uppercase tracking-wider rounded-sm hover:opacity-90 active:scale-[0.97] transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                  disabled={totalItems === 0 || isProcessing}
+                  disabled={totalItems === 0 || isProcessing || !isOpen}
                 >
                   {isProcessing ? (
                     <>
                       <Loader2 className="w-4 h-4 animate-spin" />
                       Processing…
                     </>
+                  ) : !isOpen ? (
+                    <>Online Ordering Closed</>
                   ) : (
                     <>Pay & Place {orderType === "pickup" ? "Pickup" : "Delivery"} Order — ${totalPrice.toFixed(2)}</>
                   )}
