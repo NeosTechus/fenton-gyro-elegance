@@ -23,14 +23,20 @@ const OnlineOrder = () => {
   const [submitted, setSubmitted] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
 
-  // Reset the processing state when returning from Valor checkout via
-  // browser back (bfcache restores the page with isProcessing still true).
+  // Reset the processing state when the page becomes visible again — the
+  // user hit back from Valor checkout (bfcache restore or fresh mount).
+  // Unconditional reset is safe: a fresh mount already has isProcessing=false.
   useEffect(() => {
-    const onPageShow = (e: PageTransitionEvent) => {
-      if (e.persisted) setIsProcessing(false);
+    const reset = () => setIsProcessing(false);
+    window.addEventListener("pageshow", reset);
+    window.addEventListener("focus", reset);
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") reset();
+    });
+    return () => {
+      window.removeEventListener("pageshow", reset);
+      window.removeEventListener("focus", reset);
     };
-    window.addEventListener("pageshow", onPageShow);
-    return () => window.removeEventListener("pageshow", onPageShow);
   }, []);
 
   useEffect(() => {
