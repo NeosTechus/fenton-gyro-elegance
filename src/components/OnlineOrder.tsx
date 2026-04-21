@@ -110,10 +110,7 @@ const OnlineOrder = () => {
         invoiceNumber: orderId,
         productDescription: items.map((i) => `${i.quantity}x ${i.name}`).join(", "),
       });
-      // Ensure the real Firestore orderId is in the redirect URL
-      const url = new URL(checkoutUrl);
-      url.searchParams.set("orderId", orderId);
-      window.location.href = url.toString();
+      window.location.href = checkoutUrl;
     } catch (error) {
       console.error("Checkout error:", error);
       toast.error(error instanceof Error ? error.message : "Payment failed. Please try again.");

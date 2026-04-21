@@ -31,11 +31,15 @@ export interface ValorEpageRequest {
 export async function createValorCheckout(
   request: ValorEpageRequest
 ): Promise<string> {
+  // invoiceNumber is the Firestore order ID — use it as the path segment so
+  // Valor preserves it on redirect back (query params can get stripped).
+  const trackUrl = request.invoiceNumber
+    ? `${window.location.origin}/track/${request.invoiceNumber}`
+    : `${window.location.origin}/order-success`;
+
   if (isTestMode) {
-    // Simulate a 1-second delay then redirect to success
-    // Use invoiceNumber as orderId (it's the Firestore doc ID)
     await new Promise((r) => setTimeout(r, 1000));
-    return `${window.location.origin}/order-success?orderId=${request.invoiceNumber || "test"}`;
+    return trackUrl;
   }
 
   const functionUrl =
@@ -46,7 +50,7 @@ export async function createValorCheckout(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       ...request,
-      redirectUrl: `${window.location.origin}/order-success`,
+      redirectUrl: trackUrl,
     }),
   });
 

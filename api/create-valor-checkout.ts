@@ -94,7 +94,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     formParams.append("surchargeIndicator", "1");
     formParams.append("epi", epi);
     formParams.append("epage", "1");
-    formParams.append("redirect_url", `${redirectUrl}?orderId=${orderId}`);
+    // Caller is responsible for embedding the real order ID in redirectUrl
+    // (e.g. /track/<firestoreId>) so Valor preserves it after payment.
+    formParams.append("redirect_url", redirectUrl);
     if (phone) formParams.append("phone", phone);
     // Don't send email — prevents Valor from sending invoice email
     // Customer gets redirected directly to payment page instead
