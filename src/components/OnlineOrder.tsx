@@ -6,7 +6,7 @@ import { createValorCheckout } from "@/lib/valor-ecomm";
 import { createOrder } from "@/lib/orders";
 import { isAcceptingOnlineOrders, orderingClosedMessage } from "@/lib/hours";
 
-import { menuItems as allMenuItems, categories as allCategories } from "@/data/menu";
+import { menuItems as allMenuItems, categories as allCategories, ALLERGEN_LABEL } from "@/data/menu";
 
 // Use the shared menu data — show a curated selection for online ordering
 const menuItems = allMenuItems.filter((i) =>
@@ -217,6 +217,24 @@ const OnlineOrder = () => {
                               </span>
                             </div>
                             <p className="text-xs text-muted-foreground mt-0.5">{item.desc}</p>
+                            {(item.allergens?.length || item.vegetarian) && (
+                              <div className="flex flex-wrap gap-1 mt-1.5">
+                                {item.vegetarian && (
+                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded-sm text-[10px] font-sans font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                    Vegetarian
+                                  </span>
+                                )}
+                                {item.allergens?.map((a) => (
+                                  <span
+                                    key={a}
+                                    className="inline-flex items-center px-1.5 py-0.5 rounded-sm text-[10px] font-sans font-medium bg-amber-50 text-amber-800 border border-amber-200"
+                                    title={`Contains ${ALLERGEN_LABEL[a]}`}
+                                  >
+                                    {ALLERGEN_LABEL[a]}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
                           </div>
 
                           <div className="flex items-center gap-1 shrink-0">
