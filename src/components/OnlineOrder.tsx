@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useEffect, useRef } from "react";
 import { Check, Minus, Plus, ShoppingBag, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import * as Sentry from "@sentry/react";
 import { createValorCheckout } from "@/lib/valor-ecomm";
 import { createOrder } from "@/lib/orders";
 import { isAcceptingOnlineOrders, orderingClosedMessage } from "@/lib/hours";
@@ -127,6 +128,7 @@ const OnlineOrder = () => {
       window.location.href = checkoutUrl;
     } catch (error) {
       console.error("Checkout error:", error);
+      Sentry.captureException(error, { tags: { feature: "online-order-checkout" } });
       toast.error(error instanceof Error ? error.message : "Payment failed. Please try again.");
       setIsProcessing(false);
     }
