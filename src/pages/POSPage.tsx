@@ -74,6 +74,7 @@ const POSPage = () => {
   const [unpaidInFlight, setUnpaidInFlight] = useState<{ orderId: string; txnId: string | null } | null>(null);
   const [unpaidCashFallback, setUnpaidCashFallback] = useState<{ orderId: string; tag: string; total: number } | null>(null);
   const [cashCollectConfirm, setCashCollectConfirm] = useState<{ orderId: string; tag: string; total: number } | null>(null);
+  const [newOrderCashConfirm, setNewOrderCashConfirm] = useState(false);
   const unpaidSwitchedRef = useRef<Set<string>>(new Set());
 
   // Real-time order history — all sources
@@ -912,11 +913,7 @@ const POSPage = () => {
                       <CreditCard className="w-4 h-4" /> Card
                     </button>
                     <button
-                      onClick={async () => {
-                        await saveOrder("cash");
-                        toast.success(`Cash order #${orderNumber} — $${computeTotals(totalPrice, "card").total.toFixed(2)}`, { duration: 2000 });
-                        resetOrder();
-                      }}
+                      onClick={() => setNewOrderCashConfirm(true)}
                       disabled={isProcessing}
                       className="py-4 bg-primary text-primary-foreground font-sans font-bold text-sm uppercase tracking-wider rounded-md flex items-center justify-center gap-2 hover:opacity-90 active:scale-[0.96] transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-md"
                     >
@@ -940,6 +937,41 @@ const POSPage = () => {
 
       {/* Item detail modal */}
       {selectedItem && <ItemDetailModal />}
+
+      {/* Confirm cash collection for a new POS order */}
+      {newOrderCashConfirm && (
+        <div className="fixed inset-0 bg-foreground/40 z-[60] flex items-center justify-center p-4">
+          <div className="bg-background rounded-md shadow-2xl max-w-sm w-full p-5">
+            <h3 className="font-display text-lg font-bold text-foreground mb-1">Cash collected?</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              Confirm you received <strong>${computeTotals(totalPrice, "cash").total.toFixed(2)}</strong> in cash for order #{orderNumber}.
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={async () => {
+                  setNewOrderCashConfirm(false);
+                  try {
+                    await saveOrder("cash");
+                    toast.success(`Cash order #${orderNumber} — $${computeTotals(totalPrice, "cash").total.toFixed(2)}`, { duration: 2000 });
+                    resetOrder();
+                  } catch (e) {
+                    toast.error(e instanceof Error ? e.message : "Failed to save order");
+                  }
+                }}
+                className="py-2.5 bg-emerald-600 text-white font-sans font-bold text-xs uppercase tracking-wider rounded-sm hover:bg-emerald-700 active:scale-[0.96]"
+              >
+                Yes — collected
+              </button>
+              <button
+                onClick={() => setNewOrderCashConfirm(false)}
+                className="py-2.5 bg-muted text-muted-foreground font-sans font-bold text-xs uppercase tracking-wider rounded-sm hover:bg-muted/80 active:scale-[0.96]"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Confirm cash collection for pending kiosk/unpaid cash order */}
       {cashCollectConfirm && (
