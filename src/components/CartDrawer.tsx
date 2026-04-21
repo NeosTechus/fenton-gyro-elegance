@@ -50,7 +50,7 @@ const CartDrawer = ({ open, onClose }: { open: boolean; onClose: () => void }) =
       // Send pre-surcharge amount + tax to Valor; its ePage will apply the
       // 4% surcharge itself via surchargeIndicator=1. Sending the card total
       // would cause double-charging (our 4% + Valor's 4%).
-      const { subtotal, tax, total: cardTotal } = computeTotals(totalPrice, "card");
+      const { subtotal, tax, surcharge, total: cardTotal } = computeTotals(totalPrice, "card");
       const orderId = await createOrder({
         customer_name: formData.name,
         customer_email: formData.email,
@@ -66,6 +66,7 @@ const CartDrawer = ({ open, onClose }: { open: boolean; onClose: () => void }) =
       const checkoutUrl = await createValorCheckout({
         amount: subtotal.toFixed(2),
         tax: tax.toFixed(2),
+        surcharge: surcharge.toFixed(2),
         phone: formData.phone,
         email: formData.email,
         customerName: formData.name,

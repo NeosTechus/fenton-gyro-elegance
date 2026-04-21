@@ -16,6 +16,7 @@ const isTestMode = import.meta.env.VITE_TEST_MODE === "true";
 export interface ValorEpageRequest {
   amount: string;       // e.g. "12.50"
   tax?: string;         // e.g. "1.00"
+  surcharge?: string;   // e.g. "0.50" — card surcharge, shown separately on Valor's ePage
   phone?: string;
   email?: string;
   invoiceNumber?: string;

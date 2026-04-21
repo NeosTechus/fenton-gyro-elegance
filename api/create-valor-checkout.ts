@@ -43,6 +43,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const {
       amount,
       tax,
+      surcharge,
       phone,
       email,
       customerName,
@@ -82,7 +83,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     formParams.append("txn_type", "sale");
     formParams.append("amount", amount);
     formParams.append("tax", tax || "0.00");
-    formParams.append("surcharge", "0.00");
+    // Explicit surcharge amount — Valor ePage won't compute this even with
+    // surchargeIndicator=1. We send the exact $ value we showed the
+    // customer in the UI so the total on the hosted page matches.
+    const safeSurcharge = /^\d+(\.\d{1,2})?$/.test(String(surcharge ?? "")) ? String(surcharge) : "0.00";
+    formParams.append("surcharge", safeSurcharge);
     // Required by Valor — "EPI host processor info not found" is returned when
     // the merchant is configured for surcharging but this flag is omitted.
     // https://valorapi.readme.io/reference/troubleshooting
