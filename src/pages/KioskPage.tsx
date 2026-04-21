@@ -177,7 +177,10 @@ const KioskPage = () => {
     if (cart.length === 0) return;
     setIsProcessing(true);
     try {
-      const { total: totalWithTax } = computeTotals(totalPrice, "card");
+      // Send pre-surcharge amount; the Valor terminal applies its own
+      // configured card surcharge. Sending the card total would cause
+      // a double-charge (ours + terminal's).
+      const { total: totalWithTax } = computeTotals(totalPrice, "cash");
       const lineItems = cart.map((c) => ({
         product_code: c.item.name,
         quantity: c.qty.toString(),

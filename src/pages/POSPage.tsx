@@ -75,6 +75,7 @@ const POSPage = () => {
   const [unpaidCashFallback, setUnpaidCashFallback] = useState<{ orderId: string; tag: string; total: number } | null>(null);
   const [cashCollectConfirm, setCashCollectConfirm] = useState<{ orderId: string; tag: string; total: number } | null>(null);
   const [newOrderCashConfirm, setNewOrderCashConfirm] = useState(false);
+  const [switchToCashConfirm, setSwitchToCashConfirm] = useState(false);
   const unpaidSwitchedRef = useRef<Set<string>>(new Set());
 
   // Real-time order history — all sources
@@ -155,7 +156,9 @@ const POSPage = () => {
     switchedToCashRef.current = false;
     setIsProcessing(true);
     try {
-      const { total: totalWithTax } = computeTotals(totalPrice, "card");
+      // Send pre-surcharge amount; the Valor terminal applies its own
+      // card surcharge on top. Sending the card total would double-charge.
+      const { total: totalWithTax } = computeTotals(totalPrice, "cash");
       const lineItems = cart.map((c) => ({
         product_code: c.item.name,
         quantity: c.qty.toString(),
@@ -822,7 +825,7 @@ const POSPage = () => {
               })()}
               {posSplitMode ? (
                 <div className="space-y-2 bg-violet-50 border border-violet-200 rounded-md p-3">
-                  <p className="text-[10px] font-sans font-bold text-violet-800 uppercase tracking-wider">Split Payment — ${computeTotals(totalPrice, "card").total.toFixed(2)}</p>
+                  <p className="text-[10px] font-sans font-bold text-violet-800 uppercase tracking-wider">Split Payment — ${computeTotals(totalPrice, "card").total.toFixed(2)} (surcharge auto-applied to card portion)</p>
                   <div className="flex items-center gap-2">
                     <div className="flex-1">
                       <label className="text-[9px] text-violet-600 font-semibold uppercase">Cash</label>
@@ -832,7 +835,7 @@ const POSPage = () => {
                           type="number"
                           step="0.01"
                           min="0"
-                          max={computeTotals(totalPrice, "card").total}
+                          max={computeTotals(totalPrice, "cash").total}
                           value={posSplitCash}
                           onChange={(e) => setPosSplitCash(e.target.value)}
                           className="w-full pl-5 pr-2 py-2 bg-white border border-violet-200 rounded-sm text-sm font-bold text-violet-800 focus:outline-none focus:ring-1 focus:ring-violet-400"
@@ -843,14 +846,14 @@ const POSPage = () => {
                     <div className="flex-1">
                       <label className="text-[9px] text-violet-600 font-semibold uppercase">Card</label>
                       <div className="py-2 px-2 bg-violet-100 border border-violet-200 rounded-sm text-sm font-bold text-violet-800 text-center">
-                        ${Math.max(0, computeTotals(totalPrice, "card").total - (parseFloat(posSplitCash) || 0)).toFixed(2)}
+                        ${Math.max(0, computeTotals(totalPrice, "cash").total - (parseFloat(posSplitCash) || 0)).toFixed(2)}
                       </div>
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <button
                       onClick={async () => {
-                        const total = computeTotals(totalPrice, "card").total;
+                        const total = computeTotals(totalPrice, "cash").total;
                         const cashAmt = parseFloat(posSplitCash) || 0;
                         const cardAmt = Math.max(0, total - cashAmt);
                         setIsProcessing(true);
@@ -896,7 +899,7 @@ const POSPage = () => {
                     <span>Waiting for terminal — total ${computeTotals(totalPrice, "card").total.toFixed(2)}</span>
                   </div>
                   <button
-                    onClick={handleSwitchToCash}
+                    onClick={() => setSwitchToCashConfirm(true)}
                     className="w-full py-3 bg-primary text-primary-foreground font-sans font-bold text-sm uppercase tracking-wider rounded-md flex items-center justify-center gap-2 hover:opacity-90 active:scale-[0.96] transition-all shadow-md"
                   >
                     <Banknote className="w-4 h-4" /> Pay Cash Instead
@@ -920,14 +923,14 @@ const POSPage = () => {
                       <Banknote className="w-4 h-4" /> Cash
                     </button>
                     <button
-                      onClick={() => { setPosSplitMode(true); setPosSplitCash((computeTotals(totalPrice, "card").total / 2).toFixed(2)); }}
+                      onClick={() => { setPosSplitMode(true); setPosSplitCash((computeTotals(totalPrice, "cash").total / 2).toFixed(2)); }}
                       disabled={isProcessing}
                       className="py-4 bg-violet-600 text-white font-sans font-bold text-sm uppercase tracking-wider rounded-md flex items-center justify-center gap-2 hover:opacity-90 active:scale-[0.96] transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-md"
                     >
                       ✂️ Split
                     </button>
                   </div>
-                  <p className="text-center text-xs text-muted-foreground mt-1">Total: ${computeTotals(totalPrice, "card").total.toFixed(2)}</p>
+                  <p className="text-center text-xs text-muted-foreground mt-1">Card total: ${computeTotals(totalPrice, "card").total.toFixed(2)} · Cash total: ${computeTotals(totalPrice, "cash").total.toFixed(2)}</p>
                 </>
               )}
             </div>
@@ -937,6 +940,35 @@ const POSPage = () => {
 
       {/* Item detail modal */}
       {selectedItem && <ItemDetailModal />}
+
+      {/* Confirm switching a live terminal txn to cash */}
+      {switchToCashConfirm && (
+        <div className="fixed inset-0 bg-foreground/40 z-[60] flex items-center justify-center p-4">
+          <div className="bg-background rounded-md shadow-2xl max-w-sm w-full p-5">
+            <h3 className="font-display text-lg font-bold text-foreground mb-1">Cash collected?</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              Cancel the terminal transaction and save order #{orderNumber} as cash for <strong>${computeTotals(totalPrice, "cash").total.toFixed(2)}</strong>?
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => {
+                  setSwitchToCashConfirm(false);
+                  handleSwitchToCash();
+                }}
+                className="py-2.5 bg-emerald-600 text-white font-sans font-bold text-xs uppercase tracking-wider rounded-sm hover:bg-emerald-700 active:scale-[0.96]"
+              >
+                Yes — collected
+              </button>
+              <button
+                onClick={() => setSwitchToCashConfirm(false)}
+                className="py-2.5 bg-muted text-muted-foreground font-sans font-bold text-xs uppercase tracking-wider rounded-sm hover:bg-muted/80 active:scale-[0.96]"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Confirm cash collection for a new POS order */}
       {newOrderCashConfirm && (
@@ -1041,7 +1073,7 @@ const POSPage = () => {
           <div className="bg-background rounded-md shadow-2xl max-w-sm w-full p-5">
             <h3 className="font-display text-lg font-bold text-foreground mb-1">Card payment cancelled</h3>
             <p className="text-sm text-muted-foreground mb-4">
-              Did the customer pay <strong>${computeTotals(totalPrice, "card").total.toFixed(2)}</strong> in cash instead?
+              Did the customer pay <strong>${computeTotals(totalPrice, "cash").total.toFixed(2)}</strong> in cash instead?
             </p>
             <div className="grid grid-cols-2 gap-2">
               <button
