@@ -23,6 +23,16 @@ const OnlineOrder = () => {
   const [submitted, setSubmitted] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
 
+  // Reset the processing state when returning from Valor checkout via
+  // browser back (bfcache restores the page with isProcessing still true).
+  useEffect(() => {
+    const onPageShow = (e: PageTransitionEvent) => {
+      if (e.persisted) setIsProcessing(false);
+    };
+    window.addEventListener("pageshow", onPageShow);
+    return () => window.removeEventListener("pageshow", onPageShow);
+  }, []);
+
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
