@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { X, Minus, Plus, Loader2, ShoppingBag } from "lucide-react";
 import { toast } from "sonner";
 import { useCart } from "@/context/CartContext";
@@ -12,6 +12,21 @@ const CartDrawer = ({ open, onClose }: { open: boolean; onClose: () => void }) =
   const orderType = "pickup";
   const [formData, setFormData] = useState({ name: "", phone: "", email: "", address: "", notes: "" });
   const [isProcessing, setIsProcessing] = useState(false);
+
+  // Reset processing state if the user navigates back from Valor's payment
+  // page without completing checkout — bfcache would otherwise restore
+  // isProcessing=true and leave the button stuck on "Processing…".
+  useEffect(() => {
+    const onPageShow = (e: PageTransitionEvent) => {
+      if (e.persisted) setIsProcessing(false);
+    };
+    window.addEventListener("pageshow", onPageShow);
+    return () => window.removeEventListener("pageshow", onPageShow);
+  }, []);
+
+  useEffect(() => {
+    if (open) setIsProcessing(false);
+  }, [open]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
