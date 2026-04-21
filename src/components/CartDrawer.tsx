@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { useCart } from "@/context/CartContext";
 import { createValorCheckout } from "@/lib/valor-ecomm";
 import { createOrder } from "@/lib/orders";
+import { computeTotals } from "@/lib/pricing";
 
 
 
@@ -46,12 +47,16 @@ const CartDrawer = ({ open, onClose }: { open: boolean; onClose: () => void }) =
         price: item.price,
         quantity: qty,
       }));
+      // Send pre-surcharge amount + tax to Valor; its ePage will apply the
+      // 4% surcharge itself via surchargeIndicator=1. Sending the card total
+      // would cause double-charging (our 4% + Valor's 4%).
+      const { subtotal, tax, total: cardTotal } = computeTotals(totalPrice, "card");
       const orderId = await createOrder({
         customer_name: formData.name,
         customer_email: formData.email,
         customer_phone: formData.phone,
         items: items.map(({ name, price, quantity }) => ({ name, price, quantity })),
-        total: totalPrice,
+        total: cardTotal,
         order_type: orderType,
         notes: formData.notes,
         source: "web",
@@ -59,7 +64,8 @@ const CartDrawer = ({ open, onClose }: { open: boolean; onClose: () => void }) =
       });
 
       const checkoutUrl = await createValorCheckout({
-        amount: totalPrice.toFixed(2),
+        amount: subtotal.toFixed(2),
+        tax: tax.toFixed(2),
         phone: formData.phone,
         email: formData.email,
         customerName: formData.name,
@@ -154,10 +160,29 @@ const CartDrawer = ({ open, onClose }: { open: boolean; onClose: () => void }) =
                 ))}
               </div>
 
-              <div className="border-t border-border pt-4 mb-6 flex justify-between font-sans font-semibold">
-                <span>Total</span>
-                <span className="text-accent">${totalPrice.toFixed(2)}</span>
-              </div>
+              {(() => {
+                const c = computeTotals(totalPrice, "card");
+                return (
+                  <div className="border-t border-border pt-4 mb-6 space-y-1">
+                    <div className="flex justify-between text-sm text-muted-foreground">
+                      <span>Subtotal</span>
+                      <span>${c.subtotal.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm text-muted-foreground">
+                      <span>Tax (8%)</span>
+                      <span>${c.tax.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-xs text-muted-foreground">
+                      <span>Card surcharge (4%)</span>
+                      <span>${c.surcharge.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between font-sans font-semibold pt-2 border-t border-border">
+                      <span>Total</span>
+                      <span className="text-accent">${c.total.toFixed(2)}</span>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Form */}
               <form onSubmit={handleSubmit} className="space-y-3">
@@ -200,7 +225,7 @@ const CartDrawer = ({ open, onClose }: { open: boolean; onClose: () => void }) =
                       Processing…
                     </>
                   ) : (
-                    <>Checkout — ${totalPrice.toFixed(2)}</>
+                    <>Checkout — ${computeTotals(totalPrice, "card").total.toFixed(2)}</>
                   )}
                 </button>
               </form>

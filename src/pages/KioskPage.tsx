@@ -18,6 +18,7 @@ import {
 import { menuItems, categories, MenuItem } from "@/data/menu";
 import { toast } from "sonner";
 import { sendCreditSale, dollarsToCents, warmupValor } from "@/lib/valor";
+import { computeTotals } from "@/lib/pricing";
 import { ValorEPI, getEPIs } from "@/lib/valor-epi";
 import { createOrder } from "@/lib/orders";
 import heroImage from "@/assets/hero-food.jpg";
@@ -155,12 +156,13 @@ const KioskPage = () => {
   ) => {
     const { paid, ...rest } = extra || {};
     const isPaid = paid ?? payment === "card";
+    const { total } = computeTotals(totalPrice, payment);
     await createOrder({
       customer_name: `${firstName.trim()} ${lastName.trim()}`.trim() || (orderType === "dine-in" ? "Dine-In Customer" : "Take-Out Customer"),
       customer_email: customerEmail.trim(),
       customer_phone: customerPhone.trim(),
       items: buildOrderItems(),
-      total: totalPrice * 1.08,
+      total,
       order_type: orderType || "dine-in",
       notes: `Kiosk ${orderType} order`,
       source: "kiosk",
@@ -175,7 +177,7 @@ const KioskPage = () => {
     if (cart.length === 0) return;
     setIsProcessing(true);
     try {
-      const totalWithTax = totalPrice * 1.08;
+      const { total: totalWithTax } = computeTotals(totalPrice, "card");
       const lineItems = cart.map((c) => ({
         product_code: c.item.name,
         quantity: c.qty.toString(),
@@ -598,28 +600,44 @@ const KioskPage = () => {
                     );
                   })}
                 </div>
-                <div className="bg-card border border-border rounded-sm p-5 mb-6">
-                  <div className="flex justify-between text-sm mb-2">
-                    <span className="text-muted-foreground">Subtotal ({totalItems} items)</span>
-                    <span className="font-sans font-semibold">${totalPrice.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between text-sm mb-3">
-                    <span className="text-muted-foreground">Tax (estimated)</span>
-                    <span className="font-sans font-semibold">${(totalPrice * 0.08).toFixed(2)}</span>
-                  </div>
-                  <div className="border-t border-border pt-3 flex justify-between">
-                    <span className="font-sans font-bold text-lg">Total</span>
-                    <span className="font-sans font-bold text-lg text-accent">${(totalPrice * 1.08).toFixed(2)}</span>
-                  </div>
-                </div>
-                <div className="grid grid-cols-1 gap-3">
-                  <button
-                    onClick={() => setStep("customer-info")}
-                    className="py-4 bg-accent text-accent-foreground font-sans font-semibold text-base uppercase tracking-wider rounded-sm flex items-center justify-center gap-3 hover:opacity-90 active:scale-[0.97] transition-all shadow-lg shadow-accent/20"
-                  >
-                    Proceed to Checkout — ${(totalPrice * 1.08).toFixed(2)}
-                  </button>
-                </div>
+                {(() => {
+                  const card = computeTotals(totalPrice, "card");
+                  const cash = computeTotals(totalPrice, "cash");
+                  return (
+                    <>
+                      <div className="bg-card border border-border rounded-sm p-5 mb-6">
+                        <div className="flex justify-between text-sm mb-2">
+                          <span className="text-muted-foreground">Subtotal ({totalItems} items)</span>
+                          <span className="font-sans font-semibold">${card.subtotal.toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between text-sm mb-1">
+                          <span className="text-muted-foreground">Tax (8%)</span>
+                          <span className="font-sans font-semibold">${card.tax.toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between text-xs text-muted-foreground mb-3">
+                          <span>Card surcharge (4%) — waived on cash</span>
+                          <span>${card.surcharge.toFixed(2)}</span>
+                        </div>
+                        <div className="border-t border-border pt-3 flex justify-between items-baseline">
+                          <span className="font-sans font-bold text-lg">Card total</span>
+                          <span className="font-sans font-bold text-lg text-accent">${card.total.toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between items-baseline text-xs text-muted-foreground mt-1">
+                          <span>Cash total</span>
+                          <span>${cash.total.toFixed(2)}</span>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-1 gap-3">
+                        <button
+                          onClick={() => setStep("customer-info")}
+                          className="py-4 bg-accent text-accent-foreground font-sans font-semibold text-base uppercase tracking-wider rounded-sm flex items-center justify-center gap-3 hover:opacity-90 active:scale-[0.97] transition-all shadow-lg shadow-accent/20"
+                        >
+                          Proceed to Checkout — ${card.total.toFixed(2)}
+                        </button>
+                      </div>
+                    </>
+                  );
+                })()}
               </>
             )}
           </div>
@@ -695,20 +713,34 @@ const KioskPage = () => {
             </div>
 
             {/* Order Summary */}
-            <div className="bg-card border border-border rounded-sm p-4 mb-6">
-              <div className="flex justify-between text-sm mb-1">
-                <span className="text-muted-foreground">{totalItems} items</span>
-                <span className="font-semibold">${totalPrice.toFixed(2)}</span>
-              </div>
-              <div className="flex justify-between text-sm mb-2">
-                <span className="text-muted-foreground">Tax</span>
-                <span className="font-semibold">${(totalPrice * 0.08).toFixed(2)}</span>
-              </div>
-              <div className="border-t border-border pt-2 flex justify-between">
-                <span className="font-sans font-bold">Total</span>
-                <span className="font-sans font-bold text-accent">${(totalPrice * 1.08).toFixed(2)}</span>
-              </div>
-            </div>
+            {(() => {
+              const card = computeTotals(totalPrice, "card");
+              const cash = computeTotals(totalPrice, "cash");
+              return (
+                <div className="bg-card border border-border rounded-sm p-4 mb-6">
+                  <div className="flex justify-between text-sm mb-1">
+                    <span className="text-muted-foreground">{totalItems} items</span>
+                    <span className="font-semibold">${card.subtotal.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm mb-1">
+                    <span className="text-muted-foreground">Tax (8%)</span>
+                    <span className="font-semibold">${card.tax.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between text-xs text-muted-foreground mb-2">
+                    <span>Card surcharge (4%) — waived on cash</span>
+                    <span>${card.surcharge.toFixed(2)}</span>
+                  </div>
+                  <div className="border-t border-border pt-2 flex justify-between items-baseline">
+                    <span className="font-sans font-bold">Card total</span>
+                    <span className="font-sans font-bold text-accent">${card.total.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between items-baseline text-xs text-muted-foreground mt-1">
+                    <span>Cash total</span>
+                    <span>${cash.total.toFixed(2)}</span>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Payment buttons */}
             <div className="grid grid-cols-2 gap-3">

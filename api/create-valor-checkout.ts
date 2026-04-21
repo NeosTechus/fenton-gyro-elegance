@@ -83,6 +83,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     formParams.append("amount", amount);
     formParams.append("tax", tax || "0.00");
     formParams.append("surcharge", "0.00");
+    // Required by Valor — "EPI host processor info not found" is returned when
+    // the merchant is configured for surcharging but this flag is omitted.
+    // https://valorapi.readme.io/reference/troubleshooting
+    formParams.append("surchargeIndicator", "1");
     formParams.append("epi", epi);
     formParams.append("epage", "1");
     formParams.append("redirect_url", `${redirectUrl}?orderId=${orderId}`);

@@ -22,6 +22,7 @@ import ModifierSelector, { getModifiersTotal, getSelectedModifierNames, getSelec
 import { useAuth } from "@/context/AuthContext";
 import { LogOut, ClipboardList } from "lucide-react";
 import { sendCreditSale, dollarsToCents, cancelValorTransaction, ValorCancelledError, warmupValor } from "@/lib/valor";
+import { computeTotals } from "@/lib/pricing";
 import { ValorEPI, getEPIs } from "@/lib/valor-epi";
 import { createOrder, subscribeToOrders, markOrderPaid, updateOrderStatus } from "@/lib/orders";
 import { Order, OrderStatus } from "@/data/orders";
@@ -132,12 +133,13 @@ const POSPage = () => {
     }));
 
   const saveOrder = async (payment: "card" | "cash", extra?: { auth_code?: string; masked_pan?: string; rrn?: string }) => {
+    const { total } = computeTotals(totalPrice, payment);
     await createOrder({
       customer_name: orderType === "dine-in" ? "Dine-In Customer" : "Take-Out Customer",
       customer_email: "",
       customer_phone: "",
       items: buildOrderItems(),
-      total: totalPrice * 1.08,
+      total,
       order_type: orderType,
       notes: `POS Order #${orderNumber}`,
       source: "pos",
@@ -152,7 +154,7 @@ const POSPage = () => {
     switchedToCashRef.current = false;
     setIsProcessing(true);
     try {
-      const totalWithTax = totalPrice * 1.08;
+      const { total: totalWithTax } = computeTotals(totalPrice, "card");
       const lineItems = cart.map((c) => ({
         product_code: c.item.name,
         quantity: c.qty.toString(),
@@ -173,7 +175,7 @@ const POSPage = () => {
       const tenderedCash = /cash/i.test(String(result.TRAN_TYPE || "")) || !result.MASKED_PAN;
       if (tenderedCash) {
         await saveOrder("cash");
-        toast.success(`Cash collected at terminal — $${(totalPrice * 1.08).toFixed(2)}`, { duration: 2000 });
+        toast.success(`Cash collected at terminal — $${computeTotals(totalPrice, "cash").total.toFixed(2)}`, { duration: 2000 });
       } else {
         await saveOrder("card", {
           auth_code: result.CODE,
@@ -789,21 +791,37 @@ const POSPage = () => {
           {/* Cart footer / checkout */}
           {cart.length > 0 && (
             <div className="border-t border-border px-4 py-3 space-y-2 shrink-0">
-              <div className="flex justify-between text-xs text-muted-foreground">
-                <span>Subtotal</span>
-                <span className="font-semibold text-foreground">${totalPrice.toFixed(2)}</span>
-              </div>
-              <div className="flex justify-between text-xs text-muted-foreground">
-                <span>Tax</span>
-                <span className="font-semibold text-foreground">${(totalPrice * 0.08).toFixed(2)}</span>
-              </div>
-              <div className="flex justify-between pt-2 border-t border-border">
-                <span className="font-sans font-bold text-sm">Total</span>
-                <span className="font-sans font-bold text-sm text-accent">${(totalPrice * 1.08).toFixed(2)}</span>
-              </div>
+              {(() => {
+                const card = computeTotals(totalPrice, "card");
+                const cash = computeTotals(totalPrice, "cash");
+                return (
+                  <>
+                    <div className="flex justify-between text-xs text-muted-foreground">
+                      <span>Subtotal</span>
+                      <span className="font-semibold text-foreground">${card.subtotal.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-xs text-muted-foreground">
+                      <span>Tax (8%)</span>
+                      <span className="font-semibold text-foreground">${card.tax.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-[10px] text-muted-foreground">
+                      <span>Card surcharge (4%)</span>
+                      <span>${card.surcharge.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between pt-2 border-t border-border">
+                      <span className="font-sans font-bold text-sm">Card total</span>
+                      <span className="font-sans font-bold text-sm text-accent">${card.total.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-[10px] text-muted-foreground">
+                      <span>Cash total</span>
+                      <span>${cash.total.toFixed(2)}</span>
+                    </div>
+                  </>
+                );
+              })()}
               {posSplitMode ? (
                 <div className="space-y-2 bg-violet-50 border border-violet-200 rounded-md p-3">
-                  <p className="text-[10px] font-sans font-bold text-violet-800 uppercase tracking-wider">Split Payment — ${(totalPrice * 1.08).toFixed(2)}</p>
+                  <p className="text-[10px] font-sans font-bold text-violet-800 uppercase tracking-wider">Split Payment — ${computeTotals(totalPrice, "card").total.toFixed(2)}</p>
                   <div className="flex items-center gap-2">
                     <div className="flex-1">
                       <label className="text-[9px] text-violet-600 font-semibold uppercase">Cash</label>
@@ -813,7 +831,7 @@ const POSPage = () => {
                           type="number"
                           step="0.01"
                           min="0"
-                          max={totalPrice * 1.08}
+                          max={computeTotals(totalPrice, "card").total}
                           value={posSplitCash}
                           onChange={(e) => setPosSplitCash(e.target.value)}
                           className="w-full pl-5 pr-2 py-2 bg-white border border-violet-200 rounded-sm text-sm font-bold text-violet-800 focus:outline-none focus:ring-1 focus:ring-violet-400"
@@ -824,14 +842,14 @@ const POSPage = () => {
                     <div className="flex-1">
                       <label className="text-[9px] text-violet-600 font-semibold uppercase">Card</label>
                       <div className="py-2 px-2 bg-violet-100 border border-violet-200 rounded-sm text-sm font-bold text-violet-800 text-center">
-                        ${Math.max(0, totalPrice * 1.08 - (parseFloat(posSplitCash) || 0)).toFixed(2)}
+                        ${Math.max(0, computeTotals(totalPrice, "card").total - (parseFloat(posSplitCash) || 0)).toFixed(2)}
                       </div>
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <button
                       onClick={async () => {
-                        const total = totalPrice * 1.08;
+                        const total = computeTotals(totalPrice, "card").total;
                         const cashAmt = parseFloat(posSplitCash) || 0;
                         const cardAmt = Math.max(0, total - cashAmt);
                         setIsProcessing(true);
@@ -874,7 +892,7 @@ const POSPage = () => {
                 <div className="space-y-2">
                   <div className="py-3 px-3 rounded-md bg-accent/15 border border-accent/40 flex items-center gap-2 text-xs font-sans font-semibold text-accent-foreground">
                     <Loader2 className="w-4 h-4 animate-spin shrink-0" />
-                    <span>Waiting for terminal — total ${(totalPrice * 1.08).toFixed(2)}</span>
+                    <span>Waiting for terminal — total ${computeTotals(totalPrice, "card").total.toFixed(2)}</span>
                   </div>
                   <button
                     onClick={handleSwitchToCash}
@@ -896,7 +914,7 @@ const POSPage = () => {
                     <button
                       onClick={async () => {
                         await saveOrder("cash");
-                        toast.success(`Cash order #${orderNumber} — $${(totalPrice * 1.08).toFixed(2)}`, { duration: 2000 });
+                        toast.success(`Cash order #${orderNumber} — $${computeTotals(totalPrice, "card").total.toFixed(2)}`, { duration: 2000 });
                         resetOrder();
                       }}
                       disabled={isProcessing}
@@ -905,14 +923,14 @@ const POSPage = () => {
                       <Banknote className="w-4 h-4" /> Cash
                     </button>
                     <button
-                      onClick={() => { setPosSplitMode(true); setPosSplitCash((totalPrice * 1.08 / 2).toFixed(2)); }}
+                      onClick={() => { setPosSplitMode(true); setPosSplitCash((computeTotals(totalPrice, "card").total / 2).toFixed(2)); }}
                       disabled={isProcessing}
                       className="py-4 bg-violet-600 text-white font-sans font-bold text-sm uppercase tracking-wider rounded-md flex items-center justify-center gap-2 hover:opacity-90 active:scale-[0.96] transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-md"
                     >
                       ✂️ Split
                     </button>
                   </div>
-                  <p className="text-center text-xs text-muted-foreground mt-1">Total: ${(totalPrice * 1.08).toFixed(2)}</p>
+                  <p className="text-center text-xs text-muted-foreground mt-1">Total: ${computeTotals(totalPrice, "card").total.toFixed(2)}</p>
                 </>
               )}
             </div>
@@ -991,7 +1009,7 @@ const POSPage = () => {
           <div className="bg-background rounded-md shadow-2xl max-w-sm w-full p-5">
             <h3 className="font-display text-lg font-bold text-foreground mb-1">Card payment cancelled</h3>
             <p className="text-sm text-muted-foreground mb-4">
-              Did the customer pay <strong>${(totalPrice * 1.08).toFixed(2)}</strong> in cash instead?
+              Did the customer pay <strong>${computeTotals(totalPrice, "card").total.toFixed(2)}</strong> in cash instead?
             </p>
             <div className="grid grid-cols-2 gap-2">
               <button
