@@ -166,53 +166,48 @@ const KitchenDisplay = () => {
   const [showRejected, setShowRejected] = useState(false);
   const [takingOrders, setTakingOrders] = useState(true);
   const [soundEnabled, setSoundEnabled] = useState(true);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const alertIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const webAlertRef = useRef<HTMLAudioElement | null>(null);
+  const posKioskAlertRef = useRef<HTMLAudioElement | null>(null);
   const pendingWebCountRef = useRef(0);
   const seenPosKioskIdsRef = useRef<Set<string>>(new Set());
   const didInitPosKioskRef = useRef(false);
 
-  // Preload notification sound
+  // Preload notification sounds — web alert loops continuously, POS/kiosk chime plays once
   useEffect(() => {
-    audioRef.current = new Audio("/sounds/order-notification.wav");
-    audioRef.current.volume = 0.8;
+    webAlertRef.current = new Audio("/sounds/order-notification.wav");
+    webAlertRef.current.volume = 0.8;
+    webAlertRef.current.loop = true;
+    posKioskAlertRef.current = new Audio("/sounds/order-notification.wav");
+    posKioskAlertRef.current.volume = 0.8;
   }, []);
 
-  const playNotificationSound = useCallback(() => {
-    if (!soundEnabled || !audioRef.current) return;
-    audioRef.current.currentTime = 0;
-    audioRef.current.play().catch(() => {});
+  const playPosKioskChime = useCallback(() => {
+    if (!soundEnabled || !posKioskAlertRef.current) return;
+    posKioskAlertRef.current.currentTime = 0;
+    posKioskAlertRef.current.play().catch(() => {});
   }, [soundEnabled]);
 
-  // Repeating alert — plays every 5 seconds while pending web orders exist
+  // Continuous alert — loops until all pending web orders are accepted/rejected
   useEffect(() => {
     const pendingWebOrders = orders.filter(
       (o) => o.status === "pending" && o.source === "web"
     );
+    const audio = webAlertRef.current;
 
-    if (pendingWebOrders.length > 0 && soundEnabled) {
-      // Play immediately if new pending orders appeared
+    if (pendingWebOrders.length > 0 && soundEnabled && audio) {
       if (pendingWebOrders.length > pendingWebCountRef.current) {
-        playNotificationSound();
         toast.info(
           `🔔 ${pendingWebOrders.length} web order${pendingWebOrders.length > 1 ? "s" : ""} waiting for approval!`,
           { duration: 5000 }
         );
       }
-
-      // Clear old interval
-      if (alertIntervalRef.current) clearInterval(alertIntervalRef.current);
-
-      // Repeat every 5 seconds until accepted
-      alertIntervalRef.current = setInterval(() => {
-        playNotificationSound();
-      }, 5000);
-    } else {
-      // No pending web orders — stop repeating
-      if (alertIntervalRef.current) {
-        clearInterval(alertIntervalRef.current);
-        alertIntervalRef.current = null;
+      if (audio.paused) {
+        audio.currentTime = 0;
+        audio.play().catch(() => {});
       }
+    } else if (audio) {
+      audio.pause();
+      audio.currentTime = 0;
     }
 
     pendingWebCountRef.current = pendingWebOrders.length;
@@ -224,18 +219,14 @@ const KitchenDisplay = () => {
     );
     if (didInitPosKioskRef.current) {
       const newOnes = posKioskOrders.filter((o) => !seenPosKioskIdsRef.current.has(o.id));
-      if (newOnes.length > 0 && soundEnabled) {
-        playNotificationSound();
+      if (newOnes.length > 0) {
+        playPosKioskChime();
       }
     } else {
       didInitPosKioskRef.current = true;
     }
     seenPosKioskIdsRef.current = new Set(posKioskOrders.map((o) => o.id));
-
-    return () => {
-      if (alertIntervalRef.current) clearInterval(alertIntervalRef.current);
-    };
-  }, [orders, soundEnabled, playNotificationSound]);
+  }, [orders, soundEnabled, playPosKioskChime]);
 
   // Real-time Firestore listener — exclude unpaid kiosk cash orders
   useEffect(() => {
