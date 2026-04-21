@@ -37,7 +37,7 @@ const STATUS_INDEX: Record<string, number> = {
 // Cancellation window in seconds — customers can self-cancel only while the
 // order is still "pending" (chef hasn't accepted yet). Kept short so it
 // rarely overlaps with chef acceptance.
-const CANCEL_WINDOW_SECONDS = 30;
+const CANCEL_WINDOW_SECONDS = 15;
 
 const TrackOrder = () => {
   const { orderId } = useParams<{ orderId: string }>();
