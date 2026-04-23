@@ -241,10 +241,15 @@ const KioskPage = () => {
     return (
       <button
         onClick={() => setStep("cart")}
-        className="fixed bottom-6 right-6 z-50 flex items-center gap-3 px-6 py-4 bg-accent text-accent-foreground font-sans font-bold text-base rounded-full shadow-2xl shadow-accent/30 hover:opacity-90 active:scale-[0.95] transition-all animate-fade-up"
+        className="fixed bottom-6 right-6 z-50 flex items-center gap-3 px-6 py-4 bg-accent text-accent-foreground font-sans font-bold text-base uppercase tracking-wider rounded-full shadow-2xl shadow-accent/30 hover:opacity-90 active:scale-[0.95] transition-all animate-fade-up"
       >
         <ShoppingBag className="w-5 h-5" />
-        <span>${totalPrice.toFixed(2)}</span>
+        <span>Proceed to Checkout</span>
+        <span className="w-px h-6 bg-accent-foreground/30" />
+        <span className="flex flex-col items-end leading-tight normal-case tracking-normal">
+          <span className="text-[10px] font-semibold opacity-80 uppercase tracking-wider">Total</span>
+          <span className="text-base font-bold">${totalPrice.toFixed(2)}</span>
+        </span>
         <span className="w-7 h-7 bg-primary text-primary-foreground text-xs font-bold rounded-full flex items-center justify-center">
           {totalItems}
         </span>
@@ -607,6 +612,44 @@ const KioskPage = () => {
                     );
                   })}
                 </div>
+                {(() => {
+                  const hasSide = cart.some((c) => c.item.category === "Sides");
+                  const hasDrink = cart.some((c) => c.item.category === "Drinks");
+                  const suggestions: MenuItem[] = [];
+                  if (!hasSide) {
+                    const fries = menuItems.find((m) => m.id === "french-fries");
+                    if (fries) suggestions.push(fries);
+                  }
+                  if (!hasDrink) {
+                    const drink = menuItems.find((m) => m.id === "fountain-drink");
+                    if (drink) suggestions.push(drink);
+                  }
+                  if (suggestions.length === 0) return null;
+                  return (
+                    <div className="bg-accent/5 border border-accent/30 rounded-sm p-4 mb-6">
+                      <p className="font-serif text-sm font-medium text-foreground mb-1">Complete your meal?</p>
+                      <p className="text-xs text-muted-foreground mb-3">
+                        {!hasSide && !hasDrink ? "Add a side and drink" : !hasSide ? "Add a side" : "Add a drink"} to round it out.
+                      </p>
+                      <div className="grid grid-cols-2 gap-2">
+                        {suggestions.map((s) => (
+                          <button
+                            key={s.id}
+                            onClick={() => { setSelectedItem(s); setSelectedCategory(s.category); setItemQty(1); setSelectedMods({}); setStep("item-detail"); }}
+                            className="bg-card border border-border rounded-sm p-2 flex items-center gap-2 text-left hover:shadow-md active:scale-[0.97] transition-all"
+                          >
+                            <img src={s.image} alt={s.name} className="w-12 h-12 rounded-sm object-cover shrink-0" />
+                            <div className="flex-1 min-w-0">
+                              <p className="font-serif text-xs font-medium truncate">{s.name}</p>
+                              <p className="text-[11px] text-accent font-sans font-bold">+${s.price.toFixed(2)}</p>
+                            </div>
+                            <Plus className="w-4 h-4 text-accent shrink-0" />
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
                 {(() => {
                   const card = computeTotals(totalPrice, "card");
                   const cash = computeTotals(totalPrice, "cash");
