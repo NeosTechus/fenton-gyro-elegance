@@ -96,10 +96,19 @@ const OrderCard = ({ order, onStatusChange, actionLabel, actionStatus }: OrderCa
     {/* Items */}
     <div className="space-y-1 mb-3 pb-3 border-b border-border/50">
       {order.items.map((item, i) => (
-        <p key={i} className="text-sm text-foreground">
-          <span className="text-muted-foreground">{item.quantity}x</span>{" "}
-          {item.name}
-        </p>
+        <div key={i} className="text-sm text-foreground">
+          <p>
+            <span className="text-muted-foreground">{item.quantity}x</span>{" "}
+            {item.name}
+          </p>
+          {item.modifiers && item.modifiers.length > 0 && (
+            <ul className="ml-5 text-xs text-muted-foreground list-disc">
+              {item.modifiers.map((m, j) => (
+                <li key={j}>{m}</li>
+              ))}
+            </ul>
+          )}
+        </div>
       ))}
     </div>
 

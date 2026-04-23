@@ -323,12 +323,17 @@ const TrackOrder = () => {
                   </h3>
                   <div className="space-y-2">
                     {order.items.map((item, i) => (
-                      <div key={i} className="flex justify-between text-sm">
-                        <span>
-                          <span className="text-muted-foreground">{item.quantity}x</span>{" "}
-                          {item.name}
-                        </span>
-                        <span className="font-semibold">${(item.price * item.quantity).toFixed(2)}</span>
+                      <div key={i} className="text-sm">
+                        <div className="flex justify-between">
+                          <span>
+                            <span className="text-muted-foreground">{item.quantity}x</span>{" "}
+                            {item.name}
+                          </span>
+                          <span className="font-semibold">${(item.price * item.quantity).toFixed(2)}</span>
+                        </div>
+                        {item.modifiers && item.modifiers.length > 0 && (
+                          <div className="ml-5 text-xs text-muted-foreground">+ {item.modifiers.join(", ")}</div>
+                        )}
                       </div>
                     ))}
                   </div>

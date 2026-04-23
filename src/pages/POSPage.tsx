@@ -128,11 +128,15 @@ const POSPage = () => {
   };
 
   const buildOrderItems = () =>
-    cart.map((c) => ({
-      name: c.item.name,
-      quantity: c.qty,
-      price: c.item.price + c.modifiersTotal,
-    }));
+    cart.map((c) => {
+      const mods = c.item.modifiers ? getSelectedModifierNames(c.item.modifiers, c.selectedModifiers) : [];
+      return {
+        name: c.item.name,
+        quantity: c.qty,
+        price: c.item.price + c.modifiersTotal,
+        ...(mods.length > 0 ? { modifiers: mods } : {}),
+      };
+    });
 
   const saveOrder = async (payment: "card" | "cash", extra?: { auth_code?: string; masked_pan?: string; rrn?: string }) => {
     const { total } = computeTotals(totalPrice, payment);
@@ -504,12 +508,17 @@ const POSPage = () => {
                           {/* Items */}
                           <div className="px-3 py-2 space-y-1">
                             {order.items.map((item, i) => (
-                              <div key={i} className="flex justify-between text-xs">
-                                <span>
-                                  <span className="text-muted-foreground">{item.quantity}x</span>{" "}
-                                  {item.name}
-                                </span>
-                                <span className="font-semibold">${(item.price * item.quantity).toFixed(2)}</span>
+                              <div key={i} className="text-xs">
+                                <div className="flex justify-between">
+                                  <span>
+                                    <span className="text-muted-foreground">{item.quantity}x</span>{" "}
+                                    {item.name}
+                                  </span>
+                                  <span className="font-semibold">${(item.price * item.quantity).toFixed(2)}</span>
+                                </div>
+                                {item.modifiers && item.modifiers.length > 0 && (
+                                  <div className="ml-4 text-[10px] text-muted-foreground">+ {item.modifiers.join(", ")}</div>
+                                )}
                               </div>
                             ))}
                             <div className="flex justify-between text-xs font-bold pt-1.5 border-t border-amber-100 mt-1.5">
@@ -1233,8 +1242,15 @@ const POSPage = () => {
                           <span className="text-[9px] text-muted-foreground">{timeAgo()}</span>
                         </div>
                       </div>
-                      <div className="text-xs text-muted-foreground mb-1">
-                        {order.items.map((i) => `${i.quantity}x ${i.name}`).join(", ")}
+                      <div className="text-xs text-muted-foreground mb-1 space-y-0.5">
+                        {order.items.map((i, idx) => (
+                          <div key={idx}>
+                            <div>{i.quantity}x {i.name}</div>
+                            {i.modifiers && i.modifiers.length > 0 && (
+                              <div className="ml-4 text-[10px] opacity-80">+ {i.modifiers.join(", ")}</div>
+                            )}
+                          </div>
+                        ))}
                       </div>
                       <div className="flex justify-between items-center pt-1.5 border-t border-border/50">
                         <span className="text-[10px] text-muted-foreground capitalize">

@@ -144,11 +144,15 @@ const KioskPage = () => {
   };
 
   const buildOrderItems = () =>
-    cart.map((c) => ({
-      name: c.item.name,
-      quantity: c.qty,
-      price: c.item.price + c.modifiersTotal,
-    }));
+    cart.map((c) => {
+      const mods = c.item.modifiers ? getSelectedModifierNames(c.item.modifiers, c.selectedModifiers) : [];
+      return {
+        name: c.item.name,
+        quantity: c.qty,
+        price: c.item.price + c.modifiersTotal,
+        ...(mods.length > 0 ? { modifiers: mods } : {}),
+      };
+    });
 
   const saveKioskOrder = async (
     payment: "card" | "cash",
