@@ -71,16 +71,18 @@ const AuthPage = () => {
 
   return (
     <>
-      <Navbar />
-      <main className="pt-20 min-h-screen flex flex-col items-center justify-center section-padding bg-background">
-        {/* Back to Home */}
-        <Link
-          to="/"
-          className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors mb-8 self-center"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          Back to Home
-        </Link>
+      {!isStaffLogin && <Navbar />}
+      <main className={`${isStaffLogin ? "" : "pt-20"} min-h-screen flex flex-col items-center justify-center section-padding bg-background`}>
+        {/* Back to Home — hidden on staff (kiosk/POS) logins */}
+        {!isStaffLogin && (
+          <Link
+            to="/"
+            className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors mb-8 self-center"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Back to Home
+          </Link>
+        )}
 
         {/* Card */}
         <div className="w-full max-w-md bg-card border border-border rounded-sm p-8 animate-fade-up">
@@ -229,7 +231,7 @@ const AuthPage = () => {
           </p>
         )}
       </main>
-      <Footer />
+      {!isStaffLogin && <Footer />}
     </>
   );
 };

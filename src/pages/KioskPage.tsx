@@ -281,7 +281,12 @@ const KioskPage = () => {
   // ===== STEP 1: WELCOME SCREEN =====
   if (step === "welcome") {
     return (
-      <div className="h-screen flex flex-col items-center justify-center relative overflow-hidden cursor-pointer select-none" onClick={() => setStep("order-type")}>
+      <div className="h-screen flex flex-col items-center justify-center relative overflow-hidden cursor-pointer select-none" onClick={() => {
+        if (!document.fullscreenElement) {
+          document.documentElement.requestFullscreen?.().catch(() => {});
+        }
+        setStep("order-type");
+      }}>
         <img src={heroImage} alt="Fenton Gyro" className="absolute inset-0 w-full h-full object-cover" />
         <div className="absolute inset-0 bg-primary/70" />
         <div className="relative z-10 flex flex-col items-center text-center px-8">
