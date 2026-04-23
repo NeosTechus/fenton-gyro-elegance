@@ -666,7 +666,7 @@ const KioskPage = () => {
                           <span className="font-sans font-semibold">${card.subtotal.toFixed(2)}</span>
                         </div>
                         <div className="flex justify-between text-sm mb-1">
-                          <span className="text-muted-foreground">Tax (8%)</span>
+                          <span className="text-muted-foreground">Tax (8.238%)</span>
                           <span className="font-sans font-semibold">${card.tax.toFixed(2)}</span>
                         </div>
                         <div className="flex justify-between text-xs text-muted-foreground mb-3">
@@ -778,7 +778,7 @@ const KioskPage = () => {
                     <span className="font-semibold">${card.subtotal.toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between text-sm mb-1">
-                    <span className="text-muted-foreground">Tax (8%)</span>
+                    <span className="text-muted-foreground">Tax (8.238%)</span>
                     <span className="font-semibold">${card.tax.toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between text-xs text-muted-foreground mb-2">

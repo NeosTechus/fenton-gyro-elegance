@@ -170,7 +170,7 @@ const CartDrawer = ({ open, onClose }: { open: boolean; onClose: () => void }) =
                       <span>${c.subtotal.toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between text-sm text-muted-foreground">
-                      <span>Tax (8%)</span>
+                      <span>Tax (8.238%)</span>
                       <span>${c.tax.toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between text-xs text-muted-foreground">

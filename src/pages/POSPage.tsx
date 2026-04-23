@@ -814,7 +814,7 @@ const POSPage = () => {
                       <span className="font-semibold text-foreground">${card.subtotal.toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between text-xs text-muted-foreground">
-                      <span>Tax (8%)</span>
+                      <span>Tax (8.238%)</span>
                       <span className="font-semibold text-foreground">${card.tax.toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between text-[10px] text-muted-foreground">

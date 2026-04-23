@@ -4,7 +4,7 @@
  * screen updates.
  */
 
-export const TAX_RATE = 0.08;            // 8% sales tax
+export const TAX_RATE = 0.08238;         // 8.238% sales tax
 export const CARD_SURCHARGE_RATE = 0.04; // 4% credit-card surcharge
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
