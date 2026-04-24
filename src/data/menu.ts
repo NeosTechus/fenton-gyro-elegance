@@ -97,6 +97,7 @@ export interface MenuItem {
   modifiers?: ModifierGroup[];
   allergens?: Allergen[];
   vegetarian?: boolean;
+  posOnly?: boolean;
 }
 
 // ── Shared modifiers ─────────────────────────────────────────────────────
@@ -256,6 +257,8 @@ export const menuItems: MenuItem[] = [
   { id: "fountain-drink", name: "Fountain Drinks", desc: "Coca-Cola, Sprite, Fanta & more", price: 1.99, category: "Drinks", image: foodSoda, vegetarian: true },
   { id: "bottled-soda", name: "Bottled Soda", desc: "Assorted bottled sodas", price: 2.99, category: "Drinks", image: foodSoda, vegetarian: true },
   { id: "ginger-beer", name: "Ginger Beer", desc: "Refreshing ginger beer", price: 2.99, category: "Drinks", image: foodGingerBeer, vegetarian: true },
+  { id: "drink-addon-1", name: "Add On 1", desc: "Quick-add drink", price: 1.00, category: "Drinks", image: foodSoda, posOnly: true },
+  { id: "drink-addon-2", name: "Add On 2", desc: "Quick-add drink", price: 0.89, category: "Drinks", image: foodSoda, posOnly: true },
 ];
 
 export const categories = [...new Set(menuItems.map((i) => i.category))];

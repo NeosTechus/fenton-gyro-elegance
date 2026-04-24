@@ -11,6 +11,7 @@ import { menuItems as allMenuItems, categories as allCategories, ALLERGEN_LABEL 
 
 // Use the shared menu data — show a curated selection for online ordering
 const menuItems = allMenuItems.filter((i) =>
+  !i.posOnly &&
   ["Gyros", "Bowls", "Salads", "Appetizers", "Sides", "Desserts", "Drinks", "Kids"].includes(i.category)
 );
 const categories = allCategories;

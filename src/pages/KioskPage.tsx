@@ -15,7 +15,9 @@ import {
   HandMetal,
   Banknote,
 } from "lucide-react";
-import { menuItems, categories, MenuItem } from "@/data/menu";
+import { menuItems as allMenuItems, categories, MenuItem } from "@/data/menu";
+
+const menuItems = allMenuItems.filter((i) => !i.posOnly);
 import { toast } from "sonner";
 import { sendCreditSale, dollarsToCents, warmupValor } from "@/lib/valor";
 import { computeTotals } from "@/lib/pricing";
