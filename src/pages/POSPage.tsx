@@ -338,7 +338,7 @@ const POSPage = () => {
           <div className="flex-1 overflow-y-auto p-5">
             <div className="grid md:grid-cols-2 gap-6">
               <div>
-                <img src={selectedItem.image} alt={selectedItem.name} className="w-full aspect-[4/3] object-cover rounded-sm mb-4" />
+                {selectedItem.image && <img src={selectedItem.image} alt={selectedItem.name} className="w-full aspect-[4/3] object-cover rounded-sm mb-4" />}
                 <p className="text-sm text-muted-foreground leading-relaxed">{selectedItem.desc}</p>
                 {selectedItem.tag && (
                   <span className="inline-block mt-2 text-[10px] uppercase tracking-wider font-sans font-semibold text-accent bg-accent/10 px-2 py-1 rounded">{selectedItem.tag}</span>
@@ -736,7 +736,7 @@ const POSPage = () => {
                   }}
                   className="bg-background border-2 border-border rounded-md p-3 text-left hover:border-accent/50 hover:shadow-md active:scale-[0.96] transition-all group relative"
                 >
-                  <img src={item.image} alt={item.name} className="w-full aspect-[4/3] object-cover rounded-sm mb-2" />
+                  {item.image && <img src={item.image} alt={item.name} className="w-full aspect-[4/3] object-cover rounded-sm mb-2" />}
                   <h3 className="font-sans text-sm font-bold text-foreground leading-snug truncate">{item.name}</h3>
                   <p className="text-sm font-sans font-bold text-accent mt-0.5">${item.price.toFixed(2)}</p>
                   {item.modifiers && item.modifiers.length > 0 && (
