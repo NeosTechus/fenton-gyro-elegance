@@ -629,9 +629,30 @@ const POSPage = () => {
                             </button>
                             <button
                               onClick={async () => {
-                                await updateOrderStatus(order.id, "cancelled");
-                                toast.success(`Order ${tag} cancelled`, { duration: 2000 });
-                                setExpandedUnpaidOrder(null);
+                                // Abort any in-flight Valor txn for this order
+                                if (unpaidInFlight?.orderId === order.id) {
+                                  unpaidSwitchedRef.current.add(order.id);
+                                  const txnId = unpaidInFlight.txnId;
+                                  setUnpaidInFlight(null);
+                                  if (txnId) cancelValorTransaction(selectedEpi, selectedAppKey, txnId);
+                                }
+                                // Clear any split-payment input state for this order
+                                if (splitPayment?.orderId === order.id) {
+                                  setSplitPayment(null);
+                                }
+                                // Clear any pending cash-fallback for this order
+                                if (unpaidCashFallback?.orderId === order.id) {
+                                  setUnpaidCashFallback(null);
+                                }
+                                try {
+                                  await updateOrderStatus(order.id, "cancelled");
+                                  toast.success(`Order ${tag} cancelled`, { duration: 2000 });
+                                } catch (e) {
+                                  toast.error(e instanceof Error ? e.message : "Failed to cancel order");
+                                } finally {
+                                  unpaidSwitchedRef.current.delete(order.id);
+                                  setExpandedUnpaidOrder(null);
+                                }
                               }}
                               className="py-2.5 bg-red-600 text-white text-[10px] font-sans font-bold uppercase tracking-wider rounded-sm hover:bg-red-700 active:scale-[0.95] transition-all"
                             >
