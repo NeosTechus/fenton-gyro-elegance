@@ -30,3 +30,11 @@ dist-ssr
 files/
 .env*.local
 .vercel
+
+# Firebase service account / admin credentials (NEVER commit)
+*firebase-adminsdk*.json
+fenton-gyro-firebase-*.json
+serviceAccountKey.json
+firebase-debug.log
+firebase-debug.*.log
+.firebase/
