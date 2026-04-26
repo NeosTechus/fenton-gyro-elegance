@@ -83,7 +83,7 @@ const POSPage = () => {
   useEffect(() => {
     const unsubscribe = subscribeToOrders((orders) => {
       setOrderHistory(orders);
-      setUnpaidOrders(orders.filter((o) => o.payment_status === "unpaid"));
+      setUnpaidOrders(orders.filter((o) => o.payment_status === "unpaid" && o.status !== "cancelled"));
     });
     return () => unsubscribe();
   }, []);
