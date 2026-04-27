@@ -24,9 +24,9 @@ import { LogOut, ClipboardList } from "lucide-react";
 import { sendCreditSale, dollarsToCents, cancelValorTransaction, ValorCancelledError, warmupValor } from "@/lib/valor";
 import { computeTotals } from "@/lib/pricing";
 import { ValorEPI, getEPIs } from "@/lib/valor-epi";
-import { createOrder, subscribeToOrders, markOrderPaid, updateOrderStatus } from "@/lib/orders";
+import { createOrder, subscribeToOrders, markOrderPaid, updateOrderStatus, queueReceiptPrint } from "@/lib/orders";
 import { Order, OrderStatus } from "@/data/orders";
-import { DollarSign, ChevronDown, BarChart3 } from "lucide-react";
+import { DollarSign, ChevronDown, BarChart3, Printer } from "lucide-react";
 
 type OrderType = "dine-in" | "take-out";
 
@@ -78,6 +78,20 @@ const POSPage = () => {
   const [cashTendered, setCashTendered] = useState("");
   const [switchToCashConfirm, setSwitchToCashConfirm] = useState(false);
   const unpaidSwitchedRef = useRef<Set<string>>(new Set());
+  const [printPrompt, setPrintPrompt] = useState<{ orderId: string; tag: string; total: number } | null>(null);
+
+  const askToPrint = (orderId: string, tag: string, total: number) => {
+    setPrintPrompt({ orderId, tag, total });
+  };
+
+  const handlePrintReceipt = async (orderId: string, silent = false) => {
+    try {
+      await queueReceiptPrint(orderId);
+      if (!silent) toast.success("Receipt sent to printer", { duration: 1800 });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to queue receipt");
+    }
+  };
 
   // Real-time order history — all sources
   useEffect(() => {
@@ -141,7 +155,7 @@ const POSPage = () => {
 
   const saveOrder = async (payment: "card" | "cash", extra?: { auth_code?: string; masked_pan?: string; rrn?: string }) => {
     const { total } = computeTotals(totalPrice, payment);
-    await createOrder({
+    return await createOrder({
       customer_name: orderType === "dine-in" ? "Dine-In Customer" : "Take-Out Customer",
       customer_email: "",
       customer_phone: "",
@@ -182,11 +196,12 @@ const POSPage = () => {
       });
 
       const tenderedCash = /cash/i.test(String(result.TRAN_TYPE || "")) || !result.MASKED_PAN;
+      let savedId: string;
       if (tenderedCash) {
-        await saveOrder("cash");
+        savedId = await saveOrder("cash");
         toast.success(`Cash collected at terminal — $${computeTotals(totalPrice, "cash").total.toFixed(2)}`, { duration: 2000 });
       } else {
-        await saveOrder("card", {
+        savedId = await saveOrder("card", {
           auth_code: result.CODE,
           masked_pan: result.MASKED_PAN,
           rrn: result.RRN,
@@ -196,6 +211,7 @@ const POSPage = () => {
           { duration: 2000 }
         );
       }
+      askToPrint(savedId, `#${orderNumber}`, computeTotals(totalPrice, tenderedCash ? "cash" : "card").total);
       resetOrder();
     } catch (error) {
       if (switchedToCashRef.current) return; // user already chose cash; ignore late cancel
@@ -223,8 +239,9 @@ const POSPage = () => {
       cancelValorTransaction(selectedEpi, selectedAppKey, toCancel);
     }
     try {
-      await saveOrder("cash");
+      const savedId = await saveOrder("cash");
       toast.success("Order saved as cash payment", { duration: 2000 });
+      askToPrint(savedId, `#${orderNumber}`, computeTotals(totalPrice, "cash").total);
       resetOrder();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to save order");
@@ -250,6 +267,7 @@ const POSPage = () => {
       } else {
         toast.success(`Card payment for ${tag} — ${result.ISSUER} ${result.MASKED_PAN}`, { duration: 2000 });
       }
+      askToPrint(order.id, tag, order.total);
       setExpandedUnpaidOrder(null);
     } catch (err) {
       if (unpaidSwitchedRef.current.has(order.id)) {
@@ -276,6 +294,8 @@ const POSPage = () => {
     try {
       await markOrderPaid(orderId);
       toast.success(`Cash payment for ${tag}`, { duration: 2000 });
+      const o = orderHistory.find((x) => x.id === orderId);
+      askToPrint(orderId, tag, o?.total ?? 0);
       setExpandedUnpaidOrder(null);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to mark paid");
@@ -284,11 +304,12 @@ const POSPage = () => {
 
   const handleConfirmUnpaidCashFallback = async () => {
     if (!unpaidCashFallback) return;
-    const { orderId, tag } = unpaidCashFallback;
+    const { orderId, tag, total } = unpaidCashFallback;
     setUnpaidCashFallback(null);
     try {
       await markOrderPaid(orderId);
       toast.success(`Cash payment for ${tag}`, { duration: 2000 });
+      askToPrint(orderId, tag, total);
       setExpandedUnpaidOrder(null);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to mark paid");
@@ -298,8 +319,9 @@ const POSPage = () => {
   const handleConfirmCashFallback = async () => {
     setCashFallbackOpen(false);
     try {
-      await saveOrder("cash");
+      const savedId = await saveOrder("cash");
       toast.success("Order saved as cash payment", { duration: 2000 });
+      askToPrint(savedId, `#${orderNumber}`, computeTotals(totalPrice, "cash").total);
       resetOrder();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to save order");
@@ -582,6 +604,7 @@ const POSPage = () => {
                                     }
                                     await markOrderPaid(order.id);
                                     toast.success(`Split payment: $${cashAmt.toFixed(2)} cash + $${cardAmt.toFixed(2)} card`, { duration: 3000 });
+                                    askToPrint(order.id, tag, order.total);
                                     setSplitPayment(null);
                                     setExpandedUnpaidOrder(null);
                                   }}
@@ -899,8 +922,9 @@ const POSPage = () => {
         appkey: selectedAppKey,
                             });
                           }
-                          await saveOrder("card", {});
+                          const savedId = await saveOrder("card", {});
                           toast.success(`Split: $${cashAmt.toFixed(2)} cash + $${cardAmt.toFixed(2)} card`, { duration: 3000 });
+                          askToPrint(savedId, `#${orderNumber}`, total);
                           setPosSplitMode(false);
                           setPosSplitCash("");
                           resetOrder();
@@ -1080,13 +1104,14 @@ const POSPage = () => {
                     const changeGiven = change;
                     const cashIn = tendered;
                     try {
-                      await saveOrder("cash");
+                      const savedId = await saveOrder("cash");
                       toast.success(
                         changeGiven > 0
                           ? `Cash $${cashIn.toFixed(2)} · Change $${changeGiven.toFixed(2)}`
                           : `Cash order #${orderNumber} — $${cashTotal.toFixed(2)}`,
                         { duration: 2500 }
                       );
+                      askToPrint(savedId, `#${orderNumber}`, cashTotal);
                       resetOrder();
                     } catch (e) {
                       toast.error(e instanceof Error ? e.message : "Failed to save order");
@@ -1119,11 +1144,12 @@ const POSPage = () => {
             <div className="grid grid-cols-2 gap-2">
               <button
                 onClick={async () => {
-                  const { orderId, tag } = cashCollectConfirm;
+                  const { orderId, tag, total } = cashCollectConfirm;
                   setCashCollectConfirm(null);
                   try {
                     await markOrderPaid(orderId);
                     toast.success(`Cash collected for ${tag}`, { duration: 2000 });
+                    askToPrint(orderId, tag, total);
                     setExpandedUnpaidOrder(null);
                   } catch (e) {
                     toast.error(e instanceof Error ? e.message : "Failed to mark paid");
@@ -1138,6 +1164,39 @@ const POSPage = () => {
                 className="py-2.5 bg-muted text-muted-foreground font-sans font-bold text-xs uppercase tracking-wider rounded-sm hover:bg-muted/80 active:scale-[0.96]"
               >
                 Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Print receipt prompt — fires after every successful payment */}
+      {printPrompt && (
+        <div className="fixed inset-0 bg-foreground/40 z-[70] flex items-center justify-center p-4">
+          <div className="bg-background rounded-md shadow-2xl max-w-sm w-full p-5">
+            <div className="flex items-center gap-2 mb-1">
+              <Printer className="w-5 h-5 text-accent" />
+              <h3 className="font-display text-lg font-bold text-foreground">Print receipt?</h3>
+            </div>
+            <p className="text-sm text-muted-foreground mb-4">
+              Order <strong>{printPrompt.tag}</strong> — <strong>${printPrompt.total.toFixed(2)}</strong>.
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={async () => {
+                  const { orderId } = printPrompt;
+                  setPrintPrompt(null);
+                  await handlePrintReceipt(orderId);
+                }}
+                className="py-2.5 bg-primary text-primary-foreground font-sans font-bold text-xs uppercase tracking-wider rounded-sm hover:opacity-90 active:scale-[0.96]"
+              >
+                Yes — print
+              </button>
+              <button
+                onClick={() => setPrintPrompt(null)}
+                className="py-2.5 bg-muted text-muted-foreground font-sans font-bold text-xs uppercase tracking-wider rounded-sm hover:bg-muted/80 active:scale-[0.96]"
+              >
+                No
               </button>
             </div>
           </div>
@@ -1334,7 +1393,19 @@ const POSPage = () => {
                         <span className="text-[10px] text-muted-foreground capitalize">
                           {order.order_type} · {order.payment || "card"}
                         </span>
-                        <span className="font-sans font-bold text-xs text-accent">${order.total.toFixed(2)}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="font-sans font-bold text-xs text-accent">${order.total.toFixed(2)}</span>
+                          {order.payment_status === "paid" && (
+                            <button
+                              onClick={() => handlePrintReceipt(order.id)}
+                              className="flex items-center gap-1 px-2 py-1 bg-primary text-primary-foreground text-[10px] font-sans font-bold uppercase tracking-wider rounded-sm hover:bg-primary/90 active:scale-95 transition-all"
+                              title="Print receipt"
+                            >
+                              <Printer className="w-3 h-3" />
+                              Print
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </div>
                   );

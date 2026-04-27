@@ -60,10 +60,12 @@ export async function createOrder(input: CreateOrderInput): Promise<string> {
   // Unpaid kiosk cash orders wait at POS for payment collection
   const isUnpaidCash = input.payment_status === "unpaid";
 
+  const finalPaymentStatus = input.payment_status || "paid";
+
   const docRef = await addDoc(collection(db, "orders"), {
     ...cleanInput,
     status: isUnpaidCash ? "pending" : (autoAccept ? "received" : "pending") as OrderStatus,
-    payment_status: input.payment_status || "paid",
+    payment_status: finalPaymentStatus,
     prep_time: 15,
     created_at: serverTimestamp(),
   });
@@ -89,6 +91,16 @@ export async function markOrderPaid(orderId: string): Promise<void> {
     payment_status: "paid",
     status: "received",
   });
+}
+
+/**
+ * Add this order to the in-store Epson printer's poll queue. The printer
+ * picks up `receipt_printed_at == null` rows, prints them, and acks back
+ * with a server timestamp.
+ */
+export async function queueReceiptPrint(orderId: string): Promise<void> {
+  if (!isFirebaseConfigured || !db) return;
+  await updateDoc(doc(db, "orders", orderId), { receipt_printed_at: null });
 }
 
 export async function updatePrepTime(
