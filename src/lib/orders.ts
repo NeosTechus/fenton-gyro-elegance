@@ -28,7 +28,7 @@ export interface CreateOrderInput {
   customer_name: string;
   customer_email: string;
   customer_phone: string;
-  items: { name: string; quantity: number; price: number }[];
+  items: { name: string; quantity: number; price: number; modifiers?: string[] }[];
   total: number;
   order_type: "pickup" | "delivery" | "dine-in" | "take-out";
   notes: string;

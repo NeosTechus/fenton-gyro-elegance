@@ -5,6 +5,8 @@ interface CartContextType {
   cart: Record<string, number>;
   addItem: (id: string) => void;
   removeItem: (id: string) => void;
+  /** Remove this menu item from the cart entirely (all qty). */
+  removeLine: (id: string) => void;
   updateQty: (id: string, delta: number) => void;
   clearCart: () => void;
   totalItems: number;
@@ -37,6 +39,13 @@ export const CartProvider = ({ children }: { children: ReactNode }) => {
 
   const addItem = (id: string) => updateQty(id, 1);
   const removeItem = (id: string) => updateQty(id, -1);
+  const removeLine = (id: string) => {
+    setCart((prev) => {
+      if (!(id in prev)) return prev;
+      const { [id]: _, ...rest } = prev;
+      return rest;
+    });
+  };
   const clearCart = () => setCart({});
   const getItemQty = (id: string) => cart[id] || 0;
 
@@ -53,7 +62,7 @@ export const CartProvider = ({ children }: { children: ReactNode }) => {
 
   return (
     <CartContext.Provider
-      value={{ cart, addItem, removeItem, updateQty, clearCart, totalItems, totalPrice, getItemQty, cartItems }}
+      value={{ cart, addItem, removeItem, removeLine, updateQty, clearCart, totalItems, totalPrice, getItemQty, cartItems }}
     >
       {children}
     </CartContext.Provider>

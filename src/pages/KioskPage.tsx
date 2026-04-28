@@ -15,19 +15,22 @@ import {
   HandMetal,
   Banknote,
 } from "lucide-react";
-import { menuItems as allMenuItems, categories, MenuItem } from "@/data/menu";
-
-const menuItems = allMenuItems.filter((i) => !i.posOnly);
 import { toast } from "sonner";
+import { menuItems, categories, MenuItem } from "@/data/menu";
 import { sendCreditSale, dollarsToCents, warmupValor } from "@/lib/valor";
 import { computeTotals } from "@/lib/pricing";
 import { ValorEPI, getEPIs } from "@/lib/valor-epi";
 import { createOrder } from "@/lib/orders";
 import heroImage from "@/assets/hero-food.jpg";
-import ModifierSelector, { getModifiersTotal, getSelectedModifierNames, getSelectedModifierDetails } from "@/components/ModifierSelector";
+import ModifierSelector, {
+  getDefaultSelectedMods,
+  getKitchenModifierLines,
+  getModifiersTotal,
+  getSelectedModifierDetails,
+} from "@/components/ModifierSelector";
 import { useAuth } from "@/context/AuthContext";
 
-type KioskStep = "welcome" | "order-type" | "categories" | "items" | "item-detail" | "cart" | "customer-info";
+type KioskStep = "welcome" | "order-type" | "categories" | "items" | "item-detail" | "cart";
 type OrderType = "dine-in" | "take-out";
 
 interface CartItem {
@@ -74,7 +77,7 @@ const KioskPage = () => {
   // Warm Valor lambdas as soon as a cart exists, so the first real publish
   // on the checkout screen doesn't pay a Vercel cold-start delay.
   useEffect(() => {
-    if ((step === "cart" || step === "customer-info") && selectedEpi && selectedAppKey) {
+    if (step === "cart" && selectedEpi && selectedAppKey) {
       warmupValor(selectedEpi, selectedAppKey);
     }
   }, [step, selectedEpi, selectedAppKey]);
@@ -132,7 +135,6 @@ const KioskPage = () => {
       }
       return [...prev, { item, qty, selectedModifiers: mods, modifiersTotal: modTotal }];
     });
-    toast.success(`${qty}× ${item.name} added`, { duration: 1000 });
   };
 
   const updateCartQty = (index: number, delta: number) => {
@@ -147,7 +149,7 @@ const KioskPage = () => {
 
   const buildOrderItems = () =>
     cart.map((c) => {
-      const mods = c.item.modifiers ? getSelectedModifierNames(c.item.modifiers, c.selectedModifiers) : [];
+      const mods = c.item.modifiers ? getKitchenModifierLines(c.item.modifiers, c.selectedModifiers) : [];
       return {
         name: c.item.name,
         quantity: c.qty,
@@ -246,7 +248,7 @@ const KioskPage = () => {
         className="fixed bottom-6 right-6 z-50 flex items-center gap-3 px-6 py-4 bg-accent text-accent-foreground font-sans font-bold text-base uppercase tracking-wider rounded-full shadow-2xl shadow-accent/30 hover:opacity-90 active:scale-[0.95] transition-all animate-fade-up"
       >
         <ShoppingBag className="w-5 h-5" />
-        <span>Proceed to Checkout</span>
+        <span>Review cart — pay</span>
         <span className="w-px h-6 bg-accent-foreground/30" />
         <span className="flex flex-col items-end leading-tight normal-case tracking-normal">
           <span className="text-[10px] font-semibold opacity-80 uppercase tracking-wider">Total</span>
@@ -391,7 +393,7 @@ const KioskPage = () => {
               ) : (
                 <div className="flex-1 overflow-y-auto grid grid-cols-2 md:grid-cols-3 gap-3 auto-rows-min content-start">
                   {searchResults.map((item) => (
-                    <button key={item.id} onClick={() => { setSelectedItem(item); setSelectedCategory(item.category); setItemQty(1); setSelectedMods({}); setStep("item-detail"); setSearchQuery(""); }} className="bg-card border border-border rounded-sm p-3 flex items-center gap-3 text-left hover:shadow-md active:scale-[0.97] transition-all">
+                    <button key={item.id} onClick={() => { setSelectedItem(item); setSelectedCategory(item.category); setItemQty(1); setSelectedMods(getDefaultSelectedMods(item)); setStep("item-detail"); setSearchQuery(""); }} className="bg-card border border-border rounded-sm p-3 flex items-center gap-3 text-left hover:shadow-md active:scale-[0.97] transition-all">
                       <div className="flex-1 min-w-0">
                         <p className="text-[9px] uppercase tracking-wider font-sans font-semibold text-muted-foreground mb-0.5">{item.category}</p>
                         <h3 className="font-serif text-sm font-medium text-foreground truncate">{item.name}</h3>
@@ -434,7 +436,7 @@ const KioskPage = () => {
         <main className="flex-1 p-6">
           <div className="max-w-3xl mx-auto grid grid-cols-2 gap-4">
             {filteredItems.map((item, i) => (
-              <button key={item.id} onClick={() => { setSelectedItem(item); setItemQty(1); setSelectedMods({}); setStep("item-detail"); }} className="bg-card border border-border rounded-sm p-4 flex items-center gap-4 text-left hover:shadow-md active:scale-[0.97] transition-all animate-fade-up opacity-0" style={{ animationDelay: `${i * 80}ms` }}>
+              <button key={item.id} onClick={() => { setSelectedItem(item); setItemQty(1); setSelectedMods(getDefaultSelectedMods(item)); setStep("item-detail"); }} className="bg-card border border-border rounded-sm p-4 flex items-center gap-4 text-left hover:shadow-md active:scale-[0.97] transition-all animate-fade-up opacity-0" style={{ animationDelay: `${i * 80}ms` }}>
                 <div className="flex-1 min-w-0">
                   <h3 className="font-serif text-base font-medium text-foreground mb-1 truncate">{item.name}</h3>
                   <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">{item.desc}</p>
@@ -460,51 +462,52 @@ const KioskPage = () => {
     const modsTotal = selectedItem.modifiers ? getModifiersTotal(selectedItem.modifiers, selectedMods) : 0;
     const detailTotal = (selectedItem.price + modsTotal) * itemQty;
     return (
-      <div className="min-h-screen bg-background flex flex-col">
-        <header className="sticky top-0 z-40 bg-background/95 backdrop-blur-sm border-b border-border">
-          <div className="flex items-center justify-between px-6 py-3">
-            <button onClick={() => setStep("items")} className="flex items-center gap-2 text-sm font-sans font-semibold text-muted-foreground hover:text-foreground active:scale-95 transition-all">
+      <div className="min-h-screen max-h-[100dvh] bg-background flex flex-col overflow-hidden">
+        <header className="sticky top-0 z-40 bg-background/95 backdrop-blur-sm border-b border-border shrink-0">
+          <div className="flex items-center justify-between px-4 py-2">
+            <button type="button" onClick={() => setStep("items")} className="flex items-center gap-2 text-xs font-sans font-semibold text-muted-foreground hover:text-foreground active:scale-95 transition-all">
               <ArrowLeft className="w-4 h-4" /> Menu
             </button>
-            <p className="font-serif text-lg font-medium text-foreground">Fenton Gyro</p>
-            <div className="w-16" />
+            <p className="font-serif text-base font-medium text-foreground">Fenton Gyro</p>
+            <div className="w-14" />
           </div>
         </header>
-        <main className="flex-1 p-6 animate-fade-up opacity-0">
-          <div className="max-w-2xl mx-auto grid md:grid-cols-2 gap-8">
-            <div>
-              <img src={selectedItem.image} alt={selectedItem.name} className="w-full aspect-square object-cover rounded-sm mb-6" />
-              <h2 className="font-serif text-2xl font-medium mb-2">{selectedItem.name}</h2>
-              <p className="text-muted-foreground leading-relaxed text-sm mb-6">{selectedItem.desc}</p>
+        <main className="flex-1 min-h-0 p-3 animate-fade-up opacity-0 overflow-hidden flex flex-col">
+          <div className="max-w-2xl mx-auto w-full flex-1 min-h-0 grid md:grid-cols-2 gap-3 overflow-hidden">
+            <div className="min-h-0 flex flex-col gap-2 overflow-hidden">
+              <img src={selectedItem.image} alt={selectedItem.name} className="w-full max-h-36 md:max-h-40 object-cover rounded-sm shrink-0" />
+              <h2 className="font-serif text-lg font-medium leading-tight shrink-0">{selectedItem.name}</h2>
+              <p className="text-muted-foreground leading-snug text-xs line-clamp-3 shrink-0">{selectedItem.desc}</p>
 
               {/* Modifiers */}
               {selectedItem.modifiers && selectedItem.modifiers.length > 0 && (
-                <div className="mb-6 pb-6 border-b border-border">
+                <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain [overflow-anchor:none] border-b border-border pb-2">
                   <ModifierSelector groups={selectedItem.modifiers} selected={selectedMods} onChange={setSelectedMods} />
                 </div>
               )}
 
-              <div className="flex items-center justify-between mb-6">
-                <span className="text-2xl font-sans font-bold text-accent">${detailTotal.toFixed(2)}</span>
-                <div className="flex items-center gap-3">
-                  <button onClick={() => setItemQty(Math.max(1, itemQty - 1))} className="w-10 h-10 flex items-center justify-center rounded-sm border border-border text-muted-foreground hover:text-foreground active:scale-90 transition-all">
+              <div className="shrink-0 flex items-center justify-between gap-2 pt-1">
+                <span className="text-xl font-sans font-bold text-accent">${detailTotal.toFixed(2)}</span>
+                <div className="flex items-center gap-2">
+                  <button type="button" onClick={() => setItemQty(Math.max(1, itemQty - 1))} className="w-9 h-9 flex items-center justify-center rounded-sm border border-border text-muted-foreground hover:text-foreground active:scale-90 transition-all">
                     <Minus className="w-4 h-4" />
                   </button>
-                  <span className="w-8 text-center font-sans font-bold text-lg">{itemQty}</span>
-                  <button onClick={() => setItemQty(itemQty + 1)} className="w-10 h-10 flex items-center justify-center rounded-sm border border-border text-muted-foreground hover:text-foreground active:scale-90 transition-all">
+                  <span className="w-7 text-center font-sans font-bold text-base">{itemQty}</span>
+                  <button type="button" onClick={() => setItemQty(itemQty + 1)} className="w-9 h-9 flex items-center justify-center rounded-sm border border-border text-muted-foreground hover:text-foreground active:scale-90 transition-all">
                     <Plus className="w-4 h-4" />
                   </button>
                 </div>
               </div>
               <button
+                type="button"
                 onClick={() => { addToCart(selectedItem, itemQty, selectedMods); setStep("items"); setSelectedMods({}); }}
-                className="w-full py-4 bg-accent text-accent-foreground font-sans font-semibold text-sm uppercase tracking-wider rounded-sm flex items-center justify-center gap-2 hover:opacity-90 active:scale-[0.97] transition-all shadow-lg shadow-accent/20"
+                className="shrink-0 w-full py-3 bg-accent text-accent-foreground font-sans font-semibold text-xs uppercase tracking-wider rounded-sm flex items-center justify-center gap-2 hover:opacity-90 active:scale-[0.97] transition-all shadow-lg shadow-accent/20"
               >
                 <ShoppingBag className="w-4 h-4" />
                 Add to Cart — ${detailTotal.toFixed(2)}
               </button>
             </div>
-            <div className="hidden md:block">
+            <div className="hidden md:flex min-h-0 flex-col overflow-hidden">
               {selectedItem.tag && (
                 <div className="bg-accent/10 border border-accent/20 rounded-sm p-4 mb-4">
                   <span className="text-xs uppercase tracking-wider font-sans font-semibold text-accent">{selectedItem.tag}</span>
@@ -611,8 +614,13 @@ const KioskPage = () => {
                               <Plus className="w-3 h-3" />
                             </button>
                           </div>
-                          <button onClick={() => removeFromCart(idx)} className="w-8 h-8 flex items-center justify-center text-muted-foreground hover:text-destructive active:scale-90 transition-all">
-                            <Trash2 className="w-4 h-4" />
+                          <button
+                            type="button"
+                            title="Remove item"
+                            onClick={() => removeFromCart(idx)}
+                            className="min-w-12 min-h-12 flex items-center justify-center rounded-sm text-muted-foreground hover:text-destructive hover:bg-destructive/10 active:scale-90 transition-all"
+                          >
+                            <Trash2 className="w-6 h-6 stroke-[2]" />
                           </button>
                         </div>
                       </div>
@@ -642,7 +650,7 @@ const KioskPage = () => {
                         {suggestions.map((s) => (
                           <button
                             key={s.id}
-                            onClick={() => { setSelectedItem(s); setSelectedCategory(s.category); setItemQty(1); setSelectedMods({}); setStep("item-detail"); }}
+                            onClick={() => { setSelectedItem(s); setSelectedCategory(s.category); setItemQty(1); setSelectedMods(getDefaultSelectedMods(s)); setStep("item-detail"); }}
                             className="bg-card border border-border rounded-sm p-2 flex items-center gap-2 text-left hover:shadow-md active:scale-[0.97] transition-all"
                           >
                             <img src={s.image} alt={s.name} className="w-12 h-12 rounded-sm object-cover shrink-0" />
@@ -684,144 +692,80 @@ const KioskPage = () => {
                           <span>${cash.total.toFixed(2)}</span>
                         </div>
                       </div>
-                      <div className="grid grid-cols-1 gap-3">
-                        <button
-                          onClick={() => setStep("customer-info")}
-                          className="py-4 bg-accent text-accent-foreground font-sans font-semibold text-base uppercase tracking-wider rounded-sm flex items-center justify-center gap-3 hover:opacity-90 active:scale-[0.97] transition-all shadow-lg shadow-accent/20"
-                        >
-                          Proceed to Checkout — ${card.total.toFixed(2)}
-                        </button>
+                      <div className="border-t border-border pt-5 mt-2 space-y-4">
+                        <h3 className="font-serif text-lg font-medium text-foreground">Checkout</h3>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-xs font-sans font-semibold text-foreground mb-1">First name *</label>
+                            <input
+                              type="text"
+                              value={firstName}
+                              onChange={(e) => setFirstName(e.target.value)}
+                              placeholder="First name"
+                              className="w-full px-3 py-3 bg-card border border-border rounded-sm text-base font-sans text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-accent/50"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-sans font-semibold text-foreground mb-1">Last name</label>
+                            <input
+                              type="text"
+                              value={lastName}
+                              onChange={(e) => setLastName(e.target.value)}
+                              placeholder="Last name"
+                              className="w-full px-3 py-3 bg-card border border-border rounded-sm text-base font-sans text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-accent/50"
+                            />
+                          </div>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-sans font-semibold text-foreground mb-1">Phone</label>
+                          <input
+                            type="tel"
+                            value={customerPhone}
+                            onChange={(e) => setCustomerPhone(e.target.value)}
+                            placeholder="(636) 000-0000"
+                            className="w-full px-3 py-3 bg-card border border-border rounded-sm text-base font-sans text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-accent/50"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-sans font-semibold text-foreground mb-1">Email (optional)</label>
+                          <input
+                            type="email"
+                            value={customerEmail}
+                            onChange={(e) => setCustomerEmail(e.target.value)}
+                            placeholder="you@example.com"
+                            className="w-full px-3 py-3 bg-card border border-border rounded-sm text-base font-sans text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-accent/50"
+                          />
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                          <button
+                            type="button"
+                            onClick={handleCheckout}
+                            disabled={isProcessing || !firstName.trim()}
+                            className="min-h-[56px] py-4 bg-accent text-accent-foreground font-sans font-bold text-base uppercase tracking-wider rounded-sm flex items-center justify-center gap-2 hover:opacity-90 active:scale-[0.97] transition-all shadow-lg shadow-accent/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {isProcessing ? (<><Loader2 className="w-6 h-6 animate-spin" /> Processing…</>) : (<><CreditCard className="w-6 h-6" /> Tap to Pay — ${card.total.toFixed(2)}</>)}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              await saveKioskOrder("cash");
+                              toast.success("Order placed! Please pay at the counter.", { duration: 1000 });
+                              resetOrder();
+                            }}
+                            disabled={isProcessing || !firstName.trim()}
+                            className="min-h-[56px] py-4 bg-primary text-primary-foreground font-sans font-bold text-base uppercase tracking-wider rounded-sm flex items-center justify-center gap-2 hover:opacity-90 active:scale-[0.97] transition-all shadow-lg shadow-primary/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            <Banknote className="w-6 h-6" /> Pay at counter
+                          </button>
+                        </div>
+                        {!firstName.trim() && (
+                          <p className="text-center text-sm text-destructive font-medium">Enter your first name to pay</p>
+                        )}
                       </div>
                     </>
                   );
                 })()}
               </>
-            )}
-          </div>
-        </main>
-      </div>
-    );
-  }
-
-  // ===== STEP 7: CUSTOMER INFO =====
-  if (step === "customer-info") {
-    return (
-      <div className="min-h-screen bg-background flex flex-col">
-        <header className="sticky top-0 z-40 bg-background/95 backdrop-blur-sm border-b border-border">
-          <div className="flex items-center justify-between px-6 py-3">
-            <button onClick={() => setStep("cart")} className="flex items-center gap-2 text-sm font-sans font-semibold text-muted-foreground hover:text-foreground active:scale-95 transition-all">
-              <ArrowLeft className="w-4 h-4" /> Back to Cart
-            </button>
-            <p className="font-serif text-lg font-medium text-foreground">Checkout</p>
-            <div className="w-16" />
-          </div>
-        </header>
-        <main className="flex-1 p-6 animate-fade-up opacity-0">
-          <div className="max-w-md mx-auto">
-            <div className="text-center mb-8">
-              <h2 className="font-serif text-2xl font-medium mb-2">Your Details</h2>
-              <p className="text-sm text-muted-foreground">So we can notify you when your order is ready</p>
-            </div>
-
-            <div className="space-y-4 mb-8">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-sans font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">First Name *</label>
-                  <input
-                    type="text"
-                    value={firstName}
-                    onChange={(e) => setFirstName(e.target.value)}
-                    placeholder="First name"
-                    autoFocus
-                    className="w-full px-4 py-3.5 bg-card border border-border rounded-sm text-sm font-sans text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-accent/50"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-sans font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Last Name</label>
-                  <input
-                    type="text"
-                    value={lastName}
-                    onChange={(e) => setLastName(e.target.value)}
-                    placeholder="Last name"
-                    className="w-full px-4 py-3.5 bg-card border border-border rounded-sm text-sm font-sans text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-accent/50"
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs font-sans font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Phone Number</label>
-                <input
-                  type="tel"
-                  value={customerPhone}
-                  onChange={(e) => setCustomerPhone(e.target.value)}
-                  placeholder="(636) 000-0000"
-                  className="w-full px-4 py-3.5 bg-card border border-border rounded-sm text-sm font-sans text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-accent/50"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-sans font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Email (optional)</label>
-                <input
-                  type="email"
-                  value={customerEmail}
-                  onChange={(e) => setCustomerEmail(e.target.value)}
-                  placeholder="you@example.com"
-                  className="w-full px-4 py-3.5 bg-card border border-border rounded-sm text-sm font-sans text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-accent/50"
-                />
-              </div>
-            </div>
-
-            {/* Order Summary */}
-            {(() => {
-              const card = computeTotals(totalPrice, "card");
-              const cash = computeTotals(totalPrice, "cash");
-              return (
-                <div className="bg-card border border-border rounded-sm p-4 mb-6">
-                  <div className="flex justify-between text-sm mb-1">
-                    <span className="text-muted-foreground">{totalItems} items</span>
-                    <span className="font-semibold">${card.subtotal.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between text-sm mb-1">
-                    <span className="text-muted-foreground">Tax (8.238%)</span>
-                    <span className="font-semibold">${card.tax.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between text-xs text-muted-foreground mb-2">
-                    <span>Card surcharge (4%) — waived on cash</span>
-                    <span>${card.surcharge.toFixed(2)}</span>
-                  </div>
-                  <div className="border-t border-border pt-2 flex justify-between items-baseline">
-                    <span className="font-sans font-bold">Card total</span>
-                    <span className="font-sans font-bold text-accent">${card.total.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between items-baseline text-xs text-muted-foreground mt-1">
-                    <span>Cash total</span>
-                    <span>${cash.total.toFixed(2)}</span>
-                  </div>
-                </div>
-              );
-            })()}
-
-            {/* Payment buttons */}
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                onClick={handleCheckout}
-                disabled={isProcessing || !firstName.trim()}
-                className="py-4 bg-accent text-accent-foreground font-sans font-semibold text-base uppercase tracking-wider rounded-sm flex items-center justify-center gap-3 hover:opacity-90 active:scale-[0.97] transition-all shadow-lg shadow-accent/20 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isProcessing ? (<><Loader2 className="w-5 h-5 animate-spin" /> Processing…</>) : (<><CreditCard className="w-5 h-5" /> Tap to Pay</>)}
-              </button>
-              <button
-                onClick={async () => {
-                  await saveKioskOrder("cash");
-                  toast.success("Order placed! Please pay at the counter.", { duration: 1000 });
-                  resetOrder();
-                }}
-                disabled={isProcessing || !firstName.trim()}
-                className="py-4 bg-primary text-primary-foreground font-sans font-semibold text-base uppercase tracking-wider rounded-sm flex items-center justify-center gap-3 hover:opacity-90 active:scale-[0.97] transition-all shadow-lg shadow-primary/20 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <Banknote className="w-5 h-5" /> Pay at Counter
-              </button>
-            </div>
-            {!firstName.trim() && (
-              <p className="text-center text-xs text-destructive mt-2">Please enter your first name</p>
             )}
           </div>
         </main>

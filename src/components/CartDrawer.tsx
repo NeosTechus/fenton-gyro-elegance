@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { X, Minus, Plus, Loader2, ShoppingBag } from "lucide-react";
+import { X, Minus, Plus, Loader2, ShoppingBag, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useCart } from "@/context/CartContext";
 import { createValorCheckout } from "@/lib/valor-ecomm";
@@ -9,7 +9,7 @@ import { computeTotals } from "@/lib/pricing";
 
 
 const CartDrawer = ({ open, onClose }: { open: boolean; onClose: () => void }) => {
-  const { cartItems, totalItems, totalPrice, addItem, removeItem, clearCart } = useCart();
+  const { cartItems, totalItems, totalPrice, addItem, removeItem, removeLine, clearCart } = useCart();
   const orderType = "pickup";
   const [formData, setFormData] = useState({ name: "", phone: "", email: "", address: "", notes: "" });
   const [isProcessing, setIsProcessing] = useState(false);
@@ -139,22 +139,32 @@ const CartDrawer = ({ open, onClose }: { open: boolean; onClose: () => void }) =
                       className="w-14 h-14 rounded-sm object-cover shrink-0"
                     />
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold truncate">{item.name}</p>
-                      <p className="text-sm text-accent font-semibold">${(item.price * qty).toFixed(2)}</p>
+                      <p className="text-base font-semibold text-foreground truncate">{item.name}</p>
+                      <p className="text-base text-accent font-semibold">${(item.price * qty).toFixed(2)}</p>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
                       <button
+                        type="button"
                         onClick={() => removeItem(item.id)}
-                        className="w-7 h-7 flex items-center justify-center rounded-sm border border-border text-muted-foreground hover:text-foreground active:scale-95 transition-all"
+                        className="min-w-11 min-h-11 flex items-center justify-center rounded-sm border border-border text-muted-foreground hover:text-foreground active:scale-95 transition-all"
                       >
-                        <Minus className="w-3 h-3" />
+                        <Minus className="w-4 h-4" />
                       </button>
-                      <span className="w-6 text-center text-xs font-semibold">{qty}</span>
+                      <span className="w-8 text-center text-sm font-bold">{qty}</span>
                       <button
+                        type="button"
                         onClick={() => addItem(item.id)}
-                        className="w-7 h-7 flex items-center justify-center rounded-sm bg-accent text-accent-foreground hover:opacity-90 active:scale-95 transition-all"
+                        className="min-w-11 min-h-11 flex items-center justify-center rounded-sm bg-accent text-accent-foreground hover:opacity-90 active:scale-95 transition-all"
                       >
-                        <Plus className="w-3 h-3" />
+                        <Plus className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        title="Remove from cart"
+                        onClick={() => removeLine(item.id)}
+                        className="min-w-12 min-h-12 flex items-center justify-center rounded-sm text-muted-foreground hover:text-destructive hover:bg-destructive/10 active:scale-95 transition-all"
+                      >
+                        <Trash2 className="w-5 h-5 stroke-[2]" />
                       </button>
                     </div>
                   </div>

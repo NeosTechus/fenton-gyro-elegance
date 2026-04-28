@@ -22,7 +22,8 @@
     --secondary-foreground: 30 10% 18%;
 
     --muted: 35 16% 90%;
-    --muted-foreground: 30 8% 48%;
+    /* Darker muted text for readability on POS / kiosk / web */
+    --muted-foreground: 30 12% 34%;
 
     --accent: 16 52% 52%;
     --accent-foreground: 39 32% 96%;
@@ -60,7 +61,7 @@
   }
 
   body {
-    @apply bg-background text-foreground antialiased;
+    @apply bg-background text-foreground antialiased text-base;
     font-family: 'Source Sans 3', sans-serif;
   }
 
