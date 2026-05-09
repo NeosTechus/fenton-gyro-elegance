@@ -40,6 +40,14 @@ const COUNTER_STYLES: { status: OrderStatus; color: string }[] = [
 
 const PREP_OPTIONS = [10, 15, 20, 30, 45, 60];
 
+/** Legacy tickets said "Add Fries/Tots + …" without "Combo:" — normalize for the line. */
+const formatModifierLineForKitchen = (m: string): string => {
+  const t = m.trim();
+  if (/^combo:/i.test(t)) return t;
+  if (/fries\/tots/i.test(t) && /fountain|drink/i.test(t)) return `Combo: ${t}`;
+  return t;
+};
+
 const timeAgo = (dateStr: string) => {
   const diff = Date.now() - new Date(dateStr).getTime();
   const mins = Math.floor(diff / 60000);
@@ -48,6 +56,14 @@ const timeAgo = (dateStr: string) => {
   if (hrs < 24) return `${hrs}h ago`;
   const days = Math.floor(hrs / 24);
   return `${days}d ${hrs % 24}h ago`;
+};
+
+/** Completed bucket resets each local calendar day (display only; data stays in Firestore). */
+const isSameLocalCalendarDay = (iso: string): boolean => {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return false;
+  const n = new Date();
+  return d.getFullYear() === n.getFullYear() && d.getMonth() === n.getMonth() && d.getDate() === n.getDate();
 };
 
 interface OrderCardProps {
@@ -63,8 +79,16 @@ const SOURCE_BADGE: Record<string, { bg: string; text: string; label: string }> 
   web: { bg: "bg-amber-100", text: "text-amber-700", label: "WEB" },
 };
 
+const ORDER_TYPE_BADGE: Record<string, { bg: string; text: string; label: string }> = {
+  "dine-in": { bg: "bg-emerald-100", text: "text-emerald-800", label: "DINE-IN" },
+  "take-out": { bg: "bg-orange-100", text: "text-orange-800", label: "TAKE-OUT" },
+  pickup: { bg: "bg-orange-100", text: "text-orange-800", label: "PICKUP" },
+  delivery: { bg: "bg-indigo-100", text: "text-indigo-800", label: "DELIVERY" },
+};
+
 const OrderCard = ({ order, onStatusChange, actionLabel, actionStatus }: OrderCardProps) => {
   const sourceBadge = order.source ? SOURCE_BADGE[order.source] : null;
+  const orderTypeBadge = order.order_type ? ORDER_TYPE_BADGE[order.order_type] : null;
 
   return (
   <div className={`bg-card border-2 rounded-sm p-4 hover-lift ${
@@ -75,11 +99,16 @@ const OrderCard = ({ order, onStatusChange, actionLabel, actionStatus }: OrderCa
   }`}>
     {/* Header */}
     <div className="flex items-center justify-between mb-3">
-      <div className="flex items-center gap-2">
-        <span className="font-mono text-sm font-bold text-accent">#{order.id.slice(0, 6).toUpperCase()}</span>
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-sm font-bold text-accent truncate max-w-[180px]">{order.customer_name || `#${order.id.slice(0, 6).toUpperCase()}`}</span>
         {sourceBadge && (
           <span className={`inline-flex items-center px-2 py-0.5 rounded-sm text-[10px] font-sans font-bold tracking-wider ${sourceBadge.bg} ${sourceBadge.text}`}>
             {sourceBadge.label}
+          </span>
+        )}
+        {orderTypeBadge && (
+          <span className={`inline-flex items-center px-2 py-0.5 rounded-sm text-[10px] font-sans font-bold tracking-wider ${orderTypeBadge.bg} ${orderTypeBadge.text}`}>
+            {orderTypeBadge.label}
           </span>
         )}
       </div>
@@ -94,19 +123,25 @@ const OrderCard = ({ order, onStatusChange, actionLabel, actionStatus }: OrderCa
     </div>
 
     {/* Items */}
-    <div className="space-y-1 mb-3 pb-3 border-b border-border/50">
+    <div className="space-y-2 mb-3 pb-3 border-b border-border/50">
       {order.items.map((item, i) => (
-        <div key={i} className="text-sm text-foreground">
-          <p>
-            <span className="text-muted-foreground">{item.quantity}x</span>{" "}
-            {item.name}
+        <div key={i} className="text-base text-foreground leading-snug">
+          <p className="font-semibold">
+            <span className="text-muted-foreground font-bold">{item.quantity}×</span> {item.name}
           </p>
           {item.modifiers && item.modifiers.length > 0 && (
-            <ul className="ml-5 text-xs text-muted-foreground list-disc">
-              {item.modifiers.map((m, j) => (
-                <li key={j}>{m}</li>
-              ))}
-            </ul>
+            <>
+              {item.quantity > 1 && (
+                <p className="ml-4 mt-1.5 text-sm font-bold text-amber-950 tracking-tight">
+                  Each of the {item.quantity} includes:
+                </p>
+              )}
+              <ul className="ml-4 mt-1 text-sm text-foreground/90 list-disc marker:text-accent space-y-0.5">
+                {item.modifiers.map((m, j) => (
+                  <li key={j} className="font-medium">{formatModifierLineForKitchen(m)}</li>
+                ))}
+              </ul>
+            </>
           )}
         </div>
       ))}
@@ -114,9 +149,9 @@ const OrderCard = ({ order, onStatusChange, actionLabel, actionStatus }: OrderCa
 
     {/* Customer */}
     <div className="flex items-center justify-between mb-3 text-xs text-muted-foreground">
-      <span className="flex items-center gap-1.5">
+      <span className="flex items-center gap-1.5 font-mono">
         <User className="w-3 h-3" />
-        {order.customer_name}
+        #{order.id.slice(0, 6).toUpperCase()}
       </span>
       <span className="flex items-center gap-1">
         <Phone className="w-3 h-3" />
@@ -283,16 +318,19 @@ const KitchenDisplay = () => {
     toast.success("All pending orders accepted");
   };
 
-  const countByStatus = (s: OrderStatus) => orders.filter((o) => o.status === s).length;
+  const countByStatus = (s: OrderStatus) =>
+    s === "completed" || s === "cancelled"
+      ? orders.filter((o) => o.status === s && isSameLocalCalendarDay(o.created_at)).length
+      : orders.filter((o) => o.status === s).length;
   const pending = orders.filter((o) => o.status === "pending"); // web orders waiting for chef
   const received = orders.filter((o) => o.status === "received");
   const preparing = orders.filter((o) => o.status === "preparing");
   const ready = orders.filter((o) => o.status === "ready");
-  const completed = orders.filter((o) => o.status === "completed");
-  const cancelled = orders.filter((o) => o.status === "cancelled");
+  const completedToday = orders.filter((o) => o.status === "completed" && isSameLocalCalendarDay(o.created_at));
+  const cancelled = orders.filter((o) => o.status === "cancelled" && isSameLocalCalendarDay(o.created_at));
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="high-vis min-h-screen bg-background">
       {/* Header */}
       <header className="sticky top-0 z-40 bg-background/90 backdrop-blur-sm border-b border-border">
         <div className="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between">
@@ -463,7 +501,7 @@ const KitchenDisplay = () => {
           >
             <div className="flex items-center gap-2">
               <CheckCircle2 className="w-4 h-4 text-primary" />
-              <h2 className="font-serif text-lg font-medium">Completed Orders ({completed.length})</h2>
+              <h2 className="font-serif text-lg font-medium">Completed today ({completedToday.length})</h2>
             </div>
             <span className="text-sm text-muted-foreground font-sans font-semibold">
               {showCompleted ? "Hide" : "Show"}
@@ -471,11 +509,11 @@ const KitchenDisplay = () => {
           </button>
           {showCompleted && (
             <div className="px-5 pb-5 grid md:grid-cols-3 gap-4">
-              {completed.map((o) => (
+              {completedToday.map((o) => (
                 <OrderCard key={o.id} order={o} onStatusChange={handleStatusChange} />
               ))}
-              {completed.length === 0 && (
-                <p className="text-sm text-muted-foreground col-span-3 text-center py-6">No completed orders</p>
+              {completedToday.length === 0 && (
+                <p className="text-sm text-muted-foreground col-span-3 text-center py-6">No completed orders today</p>
               )}
             </div>
           )}
@@ -489,7 +527,7 @@ const KitchenDisplay = () => {
           >
             <div className="flex items-center gap-2">
               <X className="w-4 h-4 text-destructive" />
-              <h2 className="font-serif text-lg font-medium">Rejected Orders ({cancelled.length})</h2>
+              <h2 className="font-serif text-lg font-medium">Rejected Today ({cancelled.length})</h2>
             </div>
             <span className="text-sm text-muted-foreground font-sans font-semibold">
               {showRejected ? "Hide" : "Show"}
@@ -501,7 +539,7 @@ const KitchenDisplay = () => {
                 <OrderCard key={o.id} order={o} onStatusChange={handleStatusChange} />
               ))}
               {cancelled.length === 0 && (
-                <p className="text-sm text-muted-foreground col-span-3 text-center py-6">No rejected orders</p>
+                <p className="text-sm text-muted-foreground col-span-3 text-center py-6">No rejected orders today</p>
               )}
             </div>
           )}

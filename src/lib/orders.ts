@@ -28,7 +28,7 @@ export interface CreateOrderInput {
   customer_name: string;
   customer_email: string;
   customer_phone: string;
-  items: { name: string; quantity: number; price: number }[];
+  items: { name: string; quantity: number; price: number; modifiers?: string[] }[];
   total: number;
   order_type: "pickup" | "delivery" | "dine-in" | "take-out";
   notes: string;
@@ -163,7 +163,8 @@ function firestoreToOrder(id: string, data: any): Order {
  * Returns an unsubscribe function.
  */
 export function subscribeToOrders(
-  callback: (orders: Order[]) => void
+  callback: (orders: Order[]) => void,
+  limitCount: number | null = null
 ): () => void {
   if (!isFirebaseConfigured || !db) {
     callback(mockOrders);
@@ -173,7 +174,7 @@ export function subscribeToOrders(
   const q = query(
     collection(db, "orders"),
     orderBy("created_at", "desc"),
-    limit(200)
+    ...(limitCount === null ? [] : [limit(limitCount)])
   );
 
   return onSnapshot(

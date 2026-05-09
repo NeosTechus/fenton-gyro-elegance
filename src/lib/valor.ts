@@ -13,7 +13,7 @@
 
 export interface ValorSaleRequest {
   TRAN_MODE: string;   // "1"=Credit, "2"=Debit, "6"=Cash
-  TRAN_CODE: string;   // "1"=Sale, "2"=Void, "5"=Refund
+  TRAN_CODE: string;   // "1"=Sale, "2"=Void
   AMOUNT: string;      // cents — e.g. "1000" = $10.00
   TIP_ENTRY?: string;
   TIP_AMOUNT?: string;
@@ -203,6 +203,8 @@ export async function sendValorTransaction(
     if (p?.MASKED_PAN) return true;
     if (/cash/i.test(String(p?.TRAN_TYPE || ""))) return true;
     if (String(p?.TRAN_MODE || "") === "6") return true;
+    const auth = String(p?.AUTH_RSP_TEXT || "");
+    if (auth && /APPROV|OK|SUCCESS/i.test(auth)) return true;
     return false;
   };
 
@@ -291,3 +293,4 @@ export function sendVoid(tranNo: string, epi: string, appkey: string) {
     MOBILE_ENTRY: "0",
   } as any, epi, appkey);
 }
+

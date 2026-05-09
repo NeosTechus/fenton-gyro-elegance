@@ -7,22 +7,23 @@
 @layer base {
   :root {
     --background: 39 32% 96%;
-    --foreground: 30 10% 18%;
+    --foreground: 30 12% 10%;
 
     --card: 39 28% 93%;
-    --card-foreground: 30 10% 18%;
+    --card-foreground: 30 12% 10%;
 
     --popover: 39 32% 96%;
-    --popover-foreground: 30 10% 18%;
+    --popover-foreground: 30 12% 10%;
 
-    --primary: 142 28% 28%;
+    --primary: 142 28% 22%;
     --primary-foreground: 39 32% 96%;
 
     --secondary: 30 18% 86%;
-    --secondary-foreground: 30 10% 18%;
+    --secondary-foreground: 30 12% 10%;
 
     --muted: 35 16% 90%;
-    --muted-foreground: 30 8% 48%;
+    /* Darker muted text for readability on POS / kiosk / web */
+    --muted-foreground: 30 14% 24%;
 
     --accent: 16 52% 52%;
     --accent-foreground: 39 32% 96%;
@@ -62,6 +63,8 @@
   body {
     @apply bg-background text-foreground antialiased;
     font-family: 'Source Sans 3', sans-serif;
+    font-size: 17px;
+    line-height: 1.55;
   }
 
   h1, h2, h3, h4, h5, h6 {
@@ -76,6 +79,43 @@
 
   .text-balance {
     text-wrap: balance;
+  }
+
+  /* High-visibility scope for POS / Kitchen: scale up small text and deepen
+     muted color so workers can read at arm's length. */
+  .high-vis {
+    --muted-foreground: 30 18% 14%;
+    font-weight: 500;
+  }
+  .high-vis .text-\[9px\],
+  .high-vis .text-\[10px\],
+  .high-vis .text-\[11px\] {
+    font-size: 14px;
+  }
+  .high-vis .text-xs {
+    font-size: 1.0625rem; /* 17px (was 12px) */
+    line-height: 1.4;
+  }
+  .high-vis .text-sm {
+    font-size: 1.25rem; /* 20px (was 14px) */
+    line-height: 1.45;
+  }
+  .high-vis .text-base {
+    font-size: 1.4375rem; /* 23px (was 16px) */
+    line-height: 1.5;
+  }
+  .high-vis .text-lg {
+    font-size: 1.625rem; /* 26px (was 18px) */
+    line-height: 1.45;
+  }
+  .high-vis .text-xl {
+    font-size: 1.875rem; /* 30px (was 20px) */
+  }
+  .high-vis .text-2xl {
+    font-size: 2.125rem; /* 34px (was 24px) */
+  }
+  .high-vis .text-3xl {
+    font-size: 2.5rem; /* 40px (was 30px) */
   }
 }
 

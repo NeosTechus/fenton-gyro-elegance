@@ -1,31 +1,40 @@
 import { useState } from "react";
 import { useEffect, useRef } from "react";
-import { Check, Minus, Plus, ShoppingBag, Loader2 } from "lucide-react";
+import { Check, Minus, Plus, ShoppingBag, Loader2, X } from "lucide-react";
 import { toast } from "sonner";
 import * as Sentry from "@sentry/react";
 import { createValorCheckout } from "@/lib/valor-ecomm";
 import { createOrder } from "@/lib/orders";
 import { isAcceptingOnlineOrders, orderingClosedMessage } from "@/lib/hours";
 
-import { menuItems as allMenuItems, categories as allCategories, ALLERGEN_LABEL } from "@/data/menu";
-
-// Use the shared menu data — show a curated selection for online ordering
-const menuItems = allMenuItems.filter((i) =>
-  !i.posOnly &&
-  ["Gyros", "Bowls", "Salads", "Appetizers", "Sides", "Desserts", "Drinks", "Kids"].includes(i.category)
-);
-const categories = allCategories;
+import { menuItems, categories, ALLERGEN_LABEL } from "@/data/menu";
+import ModifierSelector, {
+  getDefaultSelectedMods,
+  getKitchenModifierLines,
+  getModifiersTotal,
+  getSelectedModifierDetails,
+} from "@/components/ModifierSelector";
 
 type OrderType = "pickup" | "delivery";
+interface WebCartLine {
+  key: string;
+  itemId: string;
+  qty: number;
+  selectedModifiers: Record<string, string[]>;
+  modifiersTotal: number;
+}
 
 const OnlineOrder = () => {
   const ref = useRef<HTMLDivElement>(null);
-  const [cart, setCart] = useState<Record<string, number>>({});
+  const [cart, setCart] = useState<WebCartLine[]>([]);
   const [orderType, setOrderType] = useState<OrderType>("pickup");
   const [formData, setFormData] = useState({ name: "", phone: "", email: "", address: "", notes: "" });
   const [submitted, setSubmitted] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isOpen, setIsOpen] = useState(() => isAcceptingOnlineOrders());
+  const [selectedItem, setSelectedItem] = useState<(typeof menuItems)[number] | null>(null);
+  const [selectedMods, setSelectedMods] = useState<Record<string, string[]>>({});
+  const [itemQty, setItemQty] = useState(1);
 
   // Re-check open/closed every 30s so the UI flips at the cutoff without reload
   useEffect(() => {
@@ -62,21 +71,66 @@ const OnlineOrder = () => {
     return () => observer.disconnect();
   }, []);
 
-  const updateQty = (id: string, delta: number) => {
+  const createLineKey = (itemId: string, mods: Record<string, string[]>) =>
+    `${itemId}::${JSON.stringify(mods)}`;
+
+  const addConfiguredToCart = (
+    item: (typeof menuItems)[number],
+    qty: number,
+    mods: Record<string, string[]>,
+  ) => {
+    const modTotal = item.modifiers ? getModifiersTotal(item.modifiers, mods) : 0;
+    const key = createLineKey(item.id, mods);
     setCart((prev) => {
-      const next = (prev[id] || 0) + delta;
-      if (next <= 0) {
-        const { [id]: _, ...rest } = prev;
-        return rest;
+      const idx = prev.findIndex((l) => l.key === key);
+      if (idx === -1) {
+        return [...prev, { key, itemId: item.id, qty, selectedModifiers: mods, modifiersTotal: modTotal }];
       }
-      return { ...prev, [id]: next };
+      return prev.map((l, i) => (i === idx ? { ...l, qty: l.qty + qty } : l));
     });
   };
 
-  const totalItems = Object.values(cart).reduce((a, b) => a + b, 0);
-  const totalPrice = Object.entries(cart).reduce((sum, [id, qty]) => {
-    const item = menuItems.find((m) => m.id === id);
-    return sum + (item ? item.price * qty : 0);
+  const updateBaseQty = (itemId: string, delta: number) => {
+    setCart((prev) => {
+      const idx = prev.findIndex((l) => l.itemId === itemId && Object.keys(l.selectedModifiers).length === 0);
+      if (idx === -1) {
+        if (delta <= 0) return prev;
+        const key = createLineKey(itemId, {});
+        return [...prev, { key, itemId, qty: delta, selectedModifiers: {}, modifiersTotal: 0 }];
+      }
+      const nextQty = prev[idx].qty + delta;
+      if (nextQty <= 0) return prev.filter((_, i) => i !== idx);
+      return prev.map((l, i) => (i === idx ? { ...l, qty: nextQty } : l));
+    });
+  };
+
+  const removeLine = (key: string) => {
+    setCart((prev) => prev.filter((l) => l.key !== key));
+  };
+
+  const openCustomize = (item: (typeof menuItems)[number]) => {
+    setSelectedItem(item);
+    setSelectedMods(getDefaultSelectedMods(item));
+    setItemQty(1);
+  };
+
+  const closeCustomize = () => {
+    setSelectedItem(null);
+    setSelectedMods({});
+    setItemQty(1);
+  };
+
+  const addSelectedItemToCart = () => {
+    if (!selectedItem) return;
+    addConfiguredToCart(selectedItem, itemQty, selectedMods);
+    closeCustomize();
+  };
+
+  const totalItems = cart.reduce((sum, l) => sum + l.qty, 0);
+  const totalPrice = cart.reduce((sum, l) => {
+    const item = menuItems.find((m) => m.id === l.itemId);
+    if (!item) return sum;
+    return sum + (item.price + l.modifiersTotal) * l.qty;
   }, 0);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -100,9 +154,17 @@ const OnlineOrder = () => {
 
     setIsProcessing(true);
     try {
-      const items = Object.entries(cart).map(([id, qty]) => {
-        const item = menuItems.find((m) => m.id === id)!;
-        return { name: item.name, price: item.price, quantity: qty };
+      const items = cart.map((line) => {
+        const item = menuItems.find((m) => m.id === line.itemId)!;
+        const modifierLines = item.modifiers
+          ? getKitchenModifierLines(item.modifiers, line.selectedModifiers)
+          : [];
+        return {
+          name: item.name,
+          price: item.price + line.modifiersTotal,
+          quantity: line.qty,
+          ...(modifierLines.length > 0 ? { modifiers: modifierLines } : {}),
+        };
       });
 
       // Save order to Firestore first
@@ -124,7 +186,9 @@ const OnlineOrder = () => {
         email: formData.email,
         customerName: formData.name,
         invoiceNumber: orderId,
-        productDescription: items.map((i) => `${i.quantity}x ${i.name}`).join(", "),
+        productDescription: items
+          .map((i) => `${i.quantity}x ${i.name}${i.modifiers?.length ? ` (${i.modifiers.join(", ")})` : ""}`)
+          .join(", "),
       });
       window.location.href = checkoutUrl;
     } catch (error) {
@@ -151,7 +215,7 @@ const OnlineOrder = () => {
             We'll call <span className="font-medium text-foreground">{formData.phone}</span> to confirm your order shortly.
           </p>
           <button
-            onClick={() => { setSubmitted(false); setCart({}); setFormData({ name: "", phone: "", email: "", address: "", notes: "" }); }}
+            onClick={() => { setSubmitted(false); setCart([]); setFormData({ name: "", phone: "", email: "", address: "", notes: "" }); }}
             className="inline-flex items-center px-6 py-3 bg-primary text-primary-foreground font-sans font-semibold text-sm uppercase tracking-wider rounded-sm hover:opacity-90 active:scale-[0.97] transition-all duration-200"
           >
             Place Another Order
@@ -211,7 +275,10 @@ const OnlineOrder = () => {
                   {menuItems
                     .filter((i) => i.category === cat)
                     .map((item) => {
-                      const qty = cart[item.id] || 0;
+                      const baseLine = cart.find((l) => l.itemId === item.id && Object.keys(l.selectedModifiers).length === 0);
+                      const qty = baseLine?.qty || 0;
+                      const hasModifiers = !!(item.modifiers && item.modifiers.length > 0);
+                      const modifierLineCount = cart.filter((l) => l.itemId === item.id && Object.keys(l.selectedModifiers).length > 0).length;
                       return (
                         <div
                           key={item.id}
@@ -248,10 +315,10 @@ const OnlineOrder = () => {
                           </div>
 
                           <div className="flex items-center gap-1 shrink-0">
-                            {qty > 0 ? (
+                            {!hasModifiers && qty > 0 ? (
                               <>
                                 <button
-                                  onClick={() => updateQty(item.id, -1)}
+                                  onClick={() => updateBaseQty(item.id, -1)}
                                   className="w-8 h-8 flex items-center justify-center rounded-sm border border-border text-muted-foreground hover:text-foreground hover:border-foreground/30 active:scale-95 transition-all"
                                 >
                                   <Minus className="w-3.5 h-3.5" />
@@ -260,7 +327,7 @@ const OnlineOrder = () => {
                                   {qty}
                                 </span>
                                 <button
-                                  onClick={() => updateQty(item.id, 1)}
+                                  onClick={() => updateBaseQty(item.id, 1)}
                                   className="w-8 h-8 flex items-center justify-center rounded-sm bg-primary text-primary-foreground hover:opacity-90 active:scale-95 transition-all"
                                 >
                                   <Plus className="w-3.5 h-3.5" />
@@ -268,13 +335,18 @@ const OnlineOrder = () => {
                               </>
                             ) : (
                               <button
-                                onClick={() => updateQty(item.id, 1)}
+                                onClick={() => (hasModifiers ? openCustomize(item) : updateBaseQty(item.id, 1))}
                                 className="px-4 py-1.5 text-xs font-sans font-semibold uppercase tracking-wider border border-border rounded-sm text-muted-foreground hover:text-foreground hover:border-foreground/30 active:scale-95 transition-all"
                               >
-                                Add
+                                {hasModifiers ? "Customize" : "Add"}
                               </button>
                             )}
                           </div>
+                          {hasModifiers && modifierLineCount > 0 && (
+                            <div className="text-[10px] text-muted-foreground mt-1.5">
+                              {modifierLineCount} custom {modifierLineCount === 1 ? "selection" : "selections"} in cart
+                            </div>
+                          )}
                         </div>
                       );
                     })}
@@ -301,15 +373,33 @@ const OnlineOrder = () => {
                   Add items from the menu to start your order.
                 </p>
               ) : (
-                <div className="space-y-2 mb-4 max-h-48 overflow-y-auto">
-                  {Object.entries(cart).map(([id, qty]) => {
-                    const item = menuItems.find((m) => m.id === id)!;
+                <div className="space-y-2 mb-4 max-h-56 overflow-y-auto">
+                  {cart.map((line) => {
+                    const item = menuItems.find((m) => m.id === line.itemId)!;
+                    const selectedDetails = item.modifiers
+                      ? getSelectedModifierDetails(item.modifiers, line.selectedModifiers)
+                      : [];
+                    const linePrice = (item.price + line.modifiersTotal) * line.qty;
                     return (
-                      <div key={id} className="flex justify-between text-sm py-1.5">
-                        <span className="text-foreground">
-                          {qty}× {item.name}
-                        </span>
-                        <span className="font-semibold">${(item.price * qty).toFixed(2)}</span>
+                      <div key={line.key} className="py-1.5 border-b border-border/30 last:border-b-0">
+                        <div className="flex justify-between text-sm">
+                          <span className="text-foreground">
+                            {line.qty}× {item.name}
+                          </span>
+                          <span className="font-semibold">${linePrice.toFixed(2)}</span>
+                        </div>
+                        {selectedDetails.length > 0 && (
+                          <p className="text-[11px] text-muted-foreground mt-0.5">
+                            {selectedDetails.map((d) => `${d.name}${d.price > 0 ? ` +$${d.price.toFixed(2)}` : ""}`).join(" · ")}
+                          </p>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => removeLine(line.key)}
+                          className="text-[10px] uppercase tracking-wide text-muted-foreground hover:text-foreground mt-1"
+                        >
+                          Remove
+                        </button>
                       </div>
                     );
                   })}
@@ -384,6 +474,67 @@ const OnlineOrder = () => {
           </div>
         </div>
       </div>
+      {selectedItem && (
+        <>
+          <div className="fixed inset-0 bg-foreground/40 z-50" onClick={closeCustomize} />
+          <div className="fixed inset-2 sm:inset-6 md:inset-x-[20%] md:inset-y-[10%] max-h-[92dvh] bg-background border border-border rounded-sm z-50 flex flex-col overflow-hidden shadow-2xl">
+            <header className="flex items-center justify-between px-3 py-2 border-b border-border shrink-0">
+              <h3 className="font-serif text-lg font-medium pr-2">{selectedItem.name}</h3>
+              <button onClick={closeCustomize} className="w-8 h-8 flex items-center justify-center rounded-sm hover:bg-muted">
+                <X className="w-4 h-4" />
+              </button>
+            </header>
+            <div className="px-3 py-2 border-b border-border/70 bg-muted/20">
+              <p className="text-sm text-muted-foreground">{selectedItem.desc}</p>
+            </div>
+            <div className="flex-1 min-h-0 overflow-y-auto p-3">
+              {selectedItem.modifiers && (
+                <ModifierSelector
+                  groups={selectedItem.modifiers}
+                  selected={selectedMods}
+                  onChange={setSelectedMods}
+                />
+              )}
+            </div>
+            <footer className="border-t border-border p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-lg font-semibold text-accent">
+                  $
+                  {(
+                    (selectedItem.price +
+                      (selectedItem.modifiers ? getModifiersTotal(selectedItem.modifiers, selectedMods) : 0)) *
+                    itemQty
+                  ).toFixed(2)}
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setItemQty(Math.max(1, itemQty - 1))}
+                    className="w-9 h-9 rounded-sm border border-border flex items-center justify-center"
+                  >
+                    <Minus className="w-4 h-4" />
+                  </button>
+                  <span className="w-8 text-center font-semibold">{itemQty}</span>
+                  <button
+                    type="button"
+                    onClick={() => setItemQty(itemQty + 1)}
+                    className="w-9 h-9 rounded-sm border border-border flex items-center justify-center"
+                  >
+                    <Plus className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={addSelectedItemToCart}
+                className="w-full py-2.5 bg-accent text-accent-foreground font-sans font-semibold text-sm uppercase tracking-wider rounded-sm hover:opacity-90"
+              >
+                Add to Order
+              </button>
+            </footer>
+          </div>
+        </>
+      )}
     </section>
   );
 };

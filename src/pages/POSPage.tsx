@@ -18,17 +18,83 @@ import {
 } from "lucide-react";
 import { menuItems, categories, MenuItem } from "@/data/menu";
 import { toast } from "sonner";
-import ModifierSelector, { getModifiersTotal, getSelectedModifierNames, getSelectedModifierDetails } from "@/components/ModifierSelector";
+import ModifierSelector, {
+  getDefaultSelectedMods,
+  getKitchenModifierLines,
+  getModifiersTotal,
+  getSelectedModifierDetails,
+} from "@/components/ModifierSelector";
 import { useAuth } from "@/context/AuthContext";
 import { LogOut, ClipboardList } from "lucide-react";
-import { sendCreditSale, dollarsToCents, cancelValorTransaction, ValorCancelledError, warmupValor } from "@/lib/valor";
+import {
+  sendCreditSale,
+  dollarsToCents,
+  cancelValorTransaction,
+  ValorCancelledError,
+  warmupValor,
+} from "@/lib/valor";
 import { computeTotals } from "@/lib/pricing";
 import { ValorEPI, getEPIs } from "@/lib/valor-epi";
-import { createOrder, subscribeToOrders, markOrderPaid, updateOrderStatus, queueReceiptPrint } from "@/lib/orders";
+import { createOrder, subscribeToOrders, markOrderPaid, updateOrderStatus, saveOrderValorRefs, queueReceiptPrint } from "@/lib/orders";
 import { Order, OrderStatus } from "@/data/orders";
 import { DollarSign, ChevronDown, BarChart3, Printer } from "lucide-react";
 
 type OrderType = "dine-in" | "take-out";
+
+// Category-tab color palette — keys are the category names; "default" is the fallback.
+// Tailwind classes are kept as full literal strings so the JIT picks them up.
+const CATEGORY_COLORS: Record<string, { active: string; inactive: string; tile: string }> = {
+  "Quick Items": {
+    active: "bg-slate-700 text-white border-slate-700 shadow-sm",
+    inactive: "bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200",
+    tile: "bg-slate-200 border-slate-400 hover:border-slate-600",
+  },
+  Gyros: {
+    active: "bg-red-600 text-white border-red-600 shadow-sm",
+    inactive: "bg-red-50 text-red-700 border-red-200 hover:bg-red-100",
+    tile: "bg-red-200 border-red-400 hover:border-red-600",
+  },
+  Bowls: {
+    active: "bg-orange-600 text-white border-orange-600 shadow-sm",
+    inactive: "bg-orange-50 text-orange-700 border-orange-200 hover:bg-orange-100",
+    tile: "bg-orange-200 border-orange-400 hover:border-orange-600",
+  },
+  Salads: {
+    active: "bg-green-600 text-white border-green-600 shadow-sm",
+    inactive: "bg-green-50 text-green-700 border-green-200 hover:bg-green-100",
+    tile: "bg-green-200 border-green-400 hover:border-green-600",
+  },
+  Sides: {
+    active: "bg-amber-600 text-white border-amber-600 shadow-sm",
+    inactive: "bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100",
+    tile: "bg-amber-200 border-amber-400 hover:border-amber-600",
+  },
+  Appetizers: {
+    active: "bg-purple-600 text-white border-purple-600 shadow-sm",
+    inactive: "bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100",
+    tile: "bg-purple-200 border-purple-400 hover:border-purple-600",
+  },
+  Drinks: {
+    active: "bg-blue-600 text-white border-blue-600 shadow-sm",
+    inactive: "bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100",
+    tile: "bg-blue-200 border-blue-400 hover:border-blue-600",
+  },
+  Desserts: {
+    active: "bg-pink-600 text-white border-pink-600 shadow-sm",
+    inactive: "bg-pink-50 text-pink-700 border-pink-200 hover:bg-pink-100",
+    tile: "bg-pink-200 border-pink-400 hover:border-pink-600",
+  },
+  Kids: {
+    active: "bg-yellow-500 text-white border-yellow-500 shadow-sm",
+    inactive: "bg-yellow-50 text-yellow-800 border-yellow-200 hover:bg-yellow-100",
+    tile: "bg-yellow-200 border-yellow-400 hover:border-yellow-600",
+  },
+  default: {
+    active: "bg-primary text-primary-foreground border-primary shadow-sm",
+    inactive: "bg-muted text-muted-foreground border-border hover:bg-muted/80",
+    tile: "bg-muted border-border hover:border-accent/50",
+  },
+};
 
 interface CartItem {
   item: MenuItem;
@@ -41,7 +107,21 @@ const POSPage = () => {
   const navigate = useNavigate();
   const { signOut } = useAuth();
   const [orderType, setOrderType] = useState<OrderType>("dine-in");
-  const [selectedCategory, setSelectedCategory] = useState<string>(categories[0]);
+  const QUICK_CAT = "Quick Items";
+  const [quickItemIds, setQuickItemIds] = useState<string[]>(() => {
+    try {
+      const raw = localStorage.getItem("pos-quick-items");
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  });
+  useEffect(() => {
+    localStorage.setItem("pos-quick-items", JSON.stringify(quickItemIds));
+  }, [quickItemIds]);
+  const [showQuickPicker, setShowQuickPicker] = useState(false);
+  const [quickItemPendingRemoval, setQuickItemPendingRemoval] = useState<MenuItem | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState<string>(QUICK_CAT);
   const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null);
   const [itemQty, setItemQty] = useState(1);
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -65,6 +145,7 @@ const POSPage = () => {
   const [unpaidOrders, setUnpaidOrders] = useState<Order[]>([]);
   const [showPendingPayments, setShowPendingPayments] = useState(false);
   const [expandedUnpaidOrder, setExpandedUnpaidOrder] = useState<string | null>(null);
+  const [loadedPendingOrderId, setLoadedPendingOrderId] = useState<string | null>(null);
   const [splitPayment, setSplitPayment] = useState<{ orderId: string; cashAmount: string } | null>(null);
   const [posSplitMode, setPosSplitMode] = useState(false);
   const [posSplitCash, setPosSplitCash] = useState("");
@@ -73,10 +154,8 @@ const POSPage = () => {
   const switchedToCashRef = useRef(false);
   const [unpaidInFlight, setUnpaidInFlight] = useState<{ orderId: string; txnId: string | null } | null>(null);
   const [unpaidCashFallback, setUnpaidCashFallback] = useState<{ orderId: string; tag: string; total: number } | null>(null);
-  const [cashCollectConfirm, setCashCollectConfirm] = useState<{ orderId: string; tag: string; total: number } | null>(null);
   const [newOrderCashConfirm, setNewOrderCashConfirm] = useState(false);
   const [cashTendered, setCashTendered] = useState("");
-  const [switchToCashConfirm, setSwitchToCashConfirm] = useState(false);
   const unpaidSwitchedRef = useRef<Set<string>>(new Set());
   const [printPrompt, setPrintPrompt] = useState<{ orderId: string; tag: string; total: number } | null>(null);
 
@@ -144,7 +223,7 @@ const POSPage = () => {
 
   const buildOrderItems = () =>
     cart.map((c) => {
-      const mods = c.item.modifiers ? getSelectedModifierNames(c.item.modifiers, c.selectedModifiers) : [];
+      const mods = c.item.modifiers ? getKitchenModifierLines(c.item.modifiers, c.selectedModifiers) : [];
       return {
         name: c.item.name,
         quantity: c.qty,
@@ -154,6 +233,13 @@ const POSPage = () => {
     });
 
   const saveOrder = async (payment: "card" | "cash", extra?: { auth_code?: string; masked_pan?: string; rrn?: string }) => {
+    if (loadedPendingOrderId) {
+      await markOrderPaid(loadedPendingOrderId);
+      if (extra && (extra.auth_code || extra.masked_pan || extra.rrn)) {
+        await saveOrderValorRefs(loadedPendingOrderId, extra);
+      }
+      return;
+    }
     const { total } = computeTotals(totalPrice, payment);
     return await createOrder({
       customer_name: orderType === "dine-in" ? "Dine-In Customer" : "Take-Out Customer",
@@ -168,6 +254,38 @@ const POSPage = () => {
       terminal_epi: selectedEpi || undefined,
       ...extra,
     });
+  };
+
+  const loadPendingIntoCart = (order: Order) => {
+    if (cart.length > 0 && !loadedPendingOrderId) {
+      const ok = window.confirm(
+        `Replace the current cart (${cart.length} item${cart.length > 1 ? "s" : ""}) with this pending order?`
+      );
+      if (!ok) return;
+    }
+    const items: CartItem[] = order.items.map((oi) => {
+      const match = menuItems.find((m) => m.name === oi.name);
+      const synthetic: MenuItem = match || {
+        id: `pending-${oi.name}`,
+        name: oi.name,
+        desc: "",
+        price: oi.price,
+        category: "Pending",
+        image: "" as unknown as MenuItem["image"],
+      };
+      return {
+        item: synthetic,
+        qty: oi.quantity,
+        selectedModifiers: {},
+        modifiersTotal: match ? Math.max(0, oi.price - match.price) : 0,
+      };
+    });
+    setCart(items);
+    setLoadedPendingOrderId(order.id);
+    setOrderType(order.order_type);
+    setShowPendingPayments(false);
+    setExpandedUnpaidOrder(null);
+    toast.success(`${order.customer_name || `Order #${order.id.slice(0, 6).toUpperCase()}`} loaded — ready to checkout`, { duration: 2000 });
   };
 
   const handleCheckout = async () => {
@@ -334,11 +452,13 @@ const POSPage = () => {
     setItemQty(1);
     setSelectedMods({});
     setSearchQuery("");
-    
+    setLoadedPendingOrderId(null);
   };
 
   const filteredItems = searchQuery.trim()
     ? menuItems.filter((m) => m.name.toLowerCase().includes(searchQuery.toLowerCase()) || m.category.toLowerCase().includes(searchQuery.toLowerCase()))
+    : selectedCategory === QUICK_CAT
+    ? quickItemIds.map((id) => menuItems.find((m) => m.id === id)).filter((m): m is MenuItem => Boolean(m))
     : menuItems.filter((m) => m.category === selectedCategory);
 
   // Item detail modal
@@ -350,57 +470,78 @@ const POSPage = () => {
     return (
       <>
         <div className="fixed inset-0 bg-foreground/40 z-50" onClick={() => { setSelectedItem(null); setSelectedMods({}); setItemQty(1); }} />
-        <div className="fixed inset-4 md:inset-x-[15%] md:inset-y-[5%] bg-background border border-border rounded-sm z-50 flex flex-col overflow-hidden shadow-2xl">
-          <header className="flex items-center justify-between px-5 py-3 border-b border-border shrink-0">
-            <h2 className="font-serif text-lg font-medium">{selectedItem.name}</h2>
-            <button onClick={() => { setSelectedItem(null); setSelectedMods({}); setItemQty(1); }} className="w-8 h-8 flex items-center justify-center rounded-sm hover:bg-muted active:scale-95 transition-all">
+        <div className="fixed inset-0 z-50 flex flex-col bg-background border-0 sm:border border-border sm:inset-2 sm:rounded-sm overflow-hidden shadow-2xl max-h-[100dvh]">
+          <header className="flex items-center gap-2 px-3 py-2 border-b border-border shrink-0">
+            {selectedItem.image ? (
+              <img
+                src={selectedItem.image}
+                alt=""
+                className="h-9 w-9 shrink-0 rounded-sm object-cover border border-border/50"
+                aria-hidden
+              />
+            ) : null}
+            <div className="min-w-0 flex-1">
+              <h2 className="font-serif text-base sm:text-lg font-medium leading-tight">{selectedItem.name}</h2>
+              {selectedItem.tag ? (
+                <span className="inline-block mt-0.5 text-[9px] uppercase tracking-wider font-sans font-semibold text-accent bg-accent/10 px-1.5 py-0.5 rounded">
+                  {selectedItem.tag}
+                </span>
+              ) : null}
+            </div>
+            <button onClick={() => { setSelectedItem(null); setSelectedMods({}); setItemQty(1); }} className="w-10 h-10 flex items-center justify-center rounded-sm hover:bg-muted active:scale-95 transition-all shrink-0">
               <X className="w-5 h-5" />
             </button>
           </header>
-          <div className="flex-1 overflow-y-auto p-5">
-            <div className="grid md:grid-cols-2 gap-6">
-              <div>
-                {selectedItem.image && <img src={selectedItem.image} alt={selectedItem.name} className="w-full aspect-[4/3] object-cover rounded-sm mb-4" />}
-                <p className="text-sm text-muted-foreground leading-relaxed">{selectedItem.desc}</p>
-                {selectedItem.tag && (
-                  <span className="inline-block mt-2 text-[10px] uppercase tracking-wider font-sans font-semibold text-accent bg-accent/10 px-2 py-1 rounded">{selectedItem.tag}</span>
-                )}
-              </div>
-              <div>
-                {selectedItem.modifiers && selectedItem.modifiers.length > 0 && (
-                  <div className="mb-5">
-                    <ModifierSelector groups={selectedItem.modifiers} selected={selectedMods} onChange={setSelectedMods} />
-                  </div>
-                )}
-                <div className="flex items-center justify-between mb-4">
-                  <span className="text-xl font-sans font-bold text-accent">${detailTotal.toFixed(2)}</span>
-                  <div className="flex items-center gap-2">
-                    <button onClick={() => setItemQty(Math.max(1, itemQty - 1))} className="w-9 h-9 flex items-center justify-center rounded-sm border border-border text-muted-foreground hover:text-foreground active:scale-90 transition-all">
-                      <Minus className="w-4 h-4" />
-                    </button>
-                    <span className="w-8 text-center font-sans font-bold text-lg">{itemQty}</span>
-                    <button onClick={() => setItemQty(itemQty + 1)} className="w-9 h-9 flex items-center justify-center rounded-sm border border-border text-muted-foreground hover:text-foreground active:scale-90 transition-all">
-                      <Plus className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
+          {/* No scroll: modifiers use dense grids + side-by-side groups on wide POS */}
+          <div className="flex-1 min-h-0 overflow-hidden px-2 py-2 sm:px-3 sm:py-2 flex flex-col">
+            {selectedItem.modifiers && selectedItem.modifiers.length > 0 ? (
+              <ModifierSelector layout="pos" groups={selectedItem.modifiers} selected={selectedMods} onChange={setSelectedMods} />
+            ) : (
+              <p className="text-sm text-muted-foreground">{selectedItem.desc}</p>
+            )}
+          </div>
+          <footer className="shrink-0 border-t border-border bg-background px-3 py-2.5 sm:py-3 space-y-2 shadow-[0_-4px_12px_rgba(0,0,0,0.06)]">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-xl font-sans font-bold text-accent tabular-nums">${detailTotal.toFixed(2)}</span>
+              <div className="flex items-center gap-2">
                 <button
-                  onClick={() => { addToCart(selectedItem, itemQty, selectedMods); setSelectedItem(null); setSelectedMods({}); setItemQty(1); }}
-                  className="w-full py-3.5 bg-accent text-accent-foreground font-sans font-semibold text-sm uppercase tracking-wider rounded-sm flex items-center justify-center gap-2 hover:opacity-90 active:scale-[0.97] transition-all"
+                  type="button"
+                  onClick={() => setItemQty(Math.max(1, itemQty - 1))}
+                  className="w-11 h-11 flex items-center justify-center rounded-sm border-2 border-border text-foreground hover:bg-muted active:scale-90 transition-all"
                 >
-                  <ShoppingBag className="w-4 h-4" />
-                  Add — ${detailTotal.toFixed(2)}
+                  <Minus className="w-5 h-5" />
+                </button>
+                <span className="w-10 text-center font-sans font-bold text-lg tabular-nums">{itemQty}</span>
+                <button
+                  type="button"
+                  onClick={() => setItemQty(itemQty + 1)}
+                  className="w-11 h-11 flex items-center justify-center rounded-sm border-2 border-border text-foreground hover:bg-muted active:scale-90 transition-all"
+                >
+                  <Plus className="w-5 h-5" />
                 </button>
               </div>
             </div>
-          </div>
+            <button
+              type="button"
+              onClick={() => {
+                addToCart(selectedItem, itemQty, selectedMods);
+                setSelectedItem(null);
+                setSelectedMods({});
+                setItemQty(1);
+              }}
+              className="w-full min-h-[48px] py-3 bg-accent text-accent-foreground font-sans font-bold text-sm uppercase tracking-wider rounded-sm flex items-center justify-center gap-2 hover:opacity-90 active:scale-[0.98] transition-all"
+            >
+              <ShoppingBag className="w-5 h-5" />
+              Add — ${detailTotal.toFixed(2)}
+            </button>
+          </footer>
         </div>
       </>
     );
   };
 
   return (
-    <div className="h-screen bg-muted flex flex-col overflow-hidden">
+    <div className="high-vis h-screen bg-muted flex flex-col overflow-hidden">
       {/* POS Top Bar */}
       <header className="bg-primary text-primary-foreground px-4 py-2 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-4">
@@ -491,7 +632,7 @@ const POSPage = () => {
           </button>
 
           {showPendingPayments && (
-            <div className="absolute top-full left-0 right-0 z-40 bg-amber-50 border-b-2 border-amber-200 shadow-lg max-h-[50vh] overflow-y-auto">
+            <div className="absolute top-full left-0 right-0 z-40 bg-amber-50 border-b-2 border-amber-200 shadow-lg max-h-[75vh] overflow-y-auto">
               <div className="p-3 space-y-2">
                 {unpaidOrders.map((order) => {
                   const isExpanded = expandedUnpaidOrder === order.id;
@@ -505,31 +646,34 @@ const POSPage = () => {
 
                   return (
                     <div key={order.id} className="bg-white border border-amber-200 rounded-sm overflow-hidden">
-                      {/* Order summary row — tap to expand */}
-                      <button
-                        onClick={() => setExpandedUnpaidOrder(isExpanded ? null : order.id)}
-                        className="w-full px-3 py-2.5 flex items-center justify-between hover:bg-amber-50 transition-colors text-left"
-                      >
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-mono text-xs font-bold text-amber-700">{tag}</span>
+                      <div className="w-full px-3 py-2.5 flex items-center justify-between hover:bg-amber-100 transition-colors">
+                        <button
+                          onClick={() => loadPendingIntoCart(order)}
+                          className="flex-1 flex items-center gap-2 flex-wrap text-left min-w-0"
+                          title="Load into cart for checkout"
+                        >
+                          <span className="text-base font-bold text-amber-900 truncate">{order.customer_name || tag}</span>
                           <span className="px-1.5 py-0.5 rounded text-[8px] font-bold bg-purple-100 text-purple-700">KIOSK</span>
-                          <span className="text-sm font-bold text-amber-900">{order.customer_name}</span>
                           <span className="text-[10px] text-amber-600">
                             · {order.items.length} item{order.items.length > 1 ? "s" : ""}
                           </span>
                           <span className="text-[10px] text-muted-foreground">· {timeAgo()}</span>
-                        </div>
-                        <div className="flex items-center gap-2">
+                        </button>
+                        <div className="flex items-center gap-2 shrink-0 ml-2">
                           <span className="text-sm font-bold text-amber-800">${order.total.toFixed(2)}</span>
-                          <ChevronDown className={`w-3.5 h-3.5 text-amber-500 transition-transform ${isExpanded ? "rotate-180" : ""}`} />
+                          <button
+                            type="button"
+                            onClick={() => setExpandedUnpaidOrder(isExpanded ? null : order.id)}
+                            className="p-1 rounded hover:bg-amber-200/70"
+                            title={isExpanded ? "Hide details" : "Show details"}
+                          >
+                            <ChevronDown className={`w-3.5 h-3.5 text-amber-600 transition-transform ${isExpanded ? "rotate-180" : ""}`} />
+                          </button>
                         </div>
-                      </button>
-
-                      {/* Expanded details */}
+                      </div>
                       {isExpanded && (
                         <div className="border-t border-amber-100">
-                          {/* Items */}
-                          <div className="px-3 py-2 space-y-1">
+                          <div className="px-3 py-2 space-y-1 max-h-48 overflow-y-auto">
                             {order.items.map((item, i) => (
                               <div key={i} className="text-xs">
                                 <div className="flex justify-between">
@@ -621,9 +765,17 @@ const POSPage = () => {
                               </div>
                             </div>
                           ) : (
-                          <div className="grid grid-cols-4 gap-1.5 px-3 py-2 bg-amber-50/50">
+                          <div className="sticky bottom-0 grid grid-cols-4 gap-1.5 px-3 py-2 bg-amber-50 border-t border-amber-200">
                             <button
-                              onClick={() => setCashCollectConfirm({ orderId: order.id, tag, total: order.total })}
+                              onClick={async () => {
+                                try {
+                                  await markOrderPaid(order.id);
+                                  toast.success(`Cash collected for ${tag}`, { duration: 2000 });
+                                  setExpandedUnpaidOrder(null);
+                                } catch (e) {
+                                  toast.error(e instanceof Error ? e.message : "Failed to mark paid");
+                                }
+                              }}
                               className="py-2.5 bg-emerald-600 text-white text-[10px] font-sans font-bold uppercase tracking-wider rounded-sm hover:bg-emerald-700 active:scale-[0.95] transition-all"
                             >
                               💵 Cash
@@ -719,34 +871,48 @@ const POSPage = () => {
             </div>
             {!searchQuery.trim() && (
               <div className="flex gap-1.5 overflow-x-auto pb-2 scrollbar-hide">
-                {categories.map((cat) => (
-                  <button
-                    key={cat}
-                    onClick={() => setSelectedCategory(cat)}
-                    className={`px-4 py-2 text-sm font-sans font-semibold rounded-sm whitespace-nowrap transition-all active:scale-95 ${
-                      selectedCategory === cat
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-muted text-muted-foreground hover:text-foreground hover:bg-muted/80"
-                    }`}
-                  >
-                    {cat}
-                  </button>
-                ))}
+                {[QUICK_CAT, ...categories].map((cat) => {
+                  const palette = CATEGORY_COLORS[cat] ?? CATEGORY_COLORS.default;
+                  const isActive = selectedCategory === cat;
+                  return (
+                    <button
+                      key={cat}
+                      onClick={() => setSelectedCategory(cat)}
+                      className={`px-4 py-2 text-sm font-sans font-semibold rounded-sm whitespace-nowrap transition-all active:scale-95 border ${
+                        isActive ? palette.active : palette.inactive
+                      }`}
+                    >
+                      {cat}
+                    </button>
+                  );
+                })}
               </div>
             )}
           </div>
 
-          {/* Items grid — large touch targets */}
-          <div className="flex-1 overflow-y-auto p-3">
-            <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
-              {filteredItems.map((item) => (
+          {/* Items grid — medium icons, fits whole category without scroll */}
+          <div className="flex-1 min-h-0 overflow-hidden p-2">
+            <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 auto-rows-[9rem] content-start">
+              {selectedCategory === QUICK_CAT && !searchQuery.trim() && (
+                <button
+                  onClick={() => setShowQuickPicker(true)}
+                  className="bg-muted/40 border-2 border-dashed border-border rounded-md p-2 flex flex-col items-center justify-center gap-1 text-muted-foreground hover:text-accent hover:border-accent/60 hover:bg-muted/60 active:scale-[0.96] transition-all"
+                >
+                  <span className="text-3xl leading-none font-light">+</span>
+                  <span className="font-sans text-xs font-bold">Add Quick Item</span>
+                </button>
+              )}
+              {filteredItems.map((item) => {
+                const tilePalette =
+                  (CATEGORY_COLORS[item.category] ?? CATEGORY_COLORS.default).tile;
+                return (
                 <button
                   key={item.id}
                   onClick={() => {
                     if (item.modifiers && item.modifiers.length > 0) {
                       setSelectedItem(item);
                       setItemQty(1);
-                      setSelectedMods({});
+                      setSelectedMods(getDefaultSelectedMods(item));
                     } else {
                       quickAdd(item);
                     }
@@ -755,24 +921,65 @@ const POSPage = () => {
                     e.preventDefault();
                     setSelectedItem(item);
                     setItemQty(1);
-                    setSelectedMods({});
+                    setSelectedMods(getDefaultSelectedMods(item));
                   }}
-                  className="bg-background border-2 border-border rounded-md p-3 text-left hover:border-accent/50 hover:shadow-md active:scale-[0.96] transition-all group relative"
+                  className={`border-2 rounded-md p-1.5 text-left hover:shadow-md active:scale-[0.96] transition-all group relative flex flex-col min-h-0 overflow-hidden ${tilePalette}`}
                 >
-                  {item.image && <img src={item.image} alt={item.name} className="w-full aspect-[4/3] object-cover rounded-sm mb-2" />}
-                  <h3 className="font-sans text-sm font-bold text-foreground leading-snug truncate">{item.name}</h3>
-                  <p className="text-sm font-sans font-bold text-accent mt-0.5">${item.price.toFixed(2)}</p>
+                  {item.image && (
+                    <img src={item.image} alt={item.name} className="w-full flex-1 min-h-0 object-cover rounded-sm mb-1" />
+                  )}
+                  <h3 className="font-sans text-xs font-bold text-foreground leading-tight line-clamp-1">{item.name}</h3>
+                  <p className="text-xs font-sans font-bold text-accent">${item.price.toFixed(2)}</p>
                   {item.modifiers && item.modifiers.length > 0 && (
-                    <span className="absolute top-2 right-2 w-3 h-3 rounded-full bg-accent" title="Has customizations" />
+                    <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-accent" title="Has customizations" />
+                  )}
+                  {selectedCategory === QUICK_CAT && !searchQuery.trim() && (
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setQuickItemPendingRemoval(item);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setQuickItemPendingRemoval(item);
+                        }
+                      }}
+                      className="absolute top-1 left-1 w-5 h-5 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center text-xs font-bold hover:scale-110 transition-transform"
+                      title="Remove from Quick Items"
+                    >
+                      ×
+                    </span>
                   )}
                 </button>
-              ))}
+                );
+              })}
             </div>
           </div>
         </div>
 
         {/* RIGHT: Cart sidebar */}
         <div className="w-80 lg:w-96 bg-background border-l border-border flex flex-col shrink-0">
+          {loadedPendingOrderId && (() => {
+            const loaded = unpaidOrders.find((o) => o.id === loadedPendingOrderId);
+            const label = loaded?.customer_name || `Order #${loadedPendingOrderId.slice(0, 6).toUpperCase()}`;
+            return (
+            <div className="px-3 py-2 bg-amber-100 border-b-2 border-amber-300 flex items-center justify-between gap-2 shrink-0">
+              <span className="text-xs font-sans font-bold text-amber-900">
+                Settling: {label}
+              </span>
+              <button
+                onClick={resetOrder}
+                className="text-[10px] font-sans font-bold text-amber-800 hover:underline"
+              >
+                Exit
+              </button>
+            </div>
+            );
+          })()}
           {/* Cart header */}
           <div className="px-4 py-3 border-b border-border flex items-center justify-between shrink-0">
             <div className="flex items-center gap-2">
@@ -806,8 +1013,13 @@ const POSPage = () => {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center justify-between">
                             <h4 className="font-sans text-xs font-semibold truncate">{c.item.name}</h4>
-                            <button onClick={() => removeFromCart(idx)} className="shrink-0 text-muted-foreground hover:text-destructive transition-colors ml-1">
-                              <X className="w-3 h-3" />
+                            <button
+                              type="button"
+                              title="Remove line"
+                              onClick={() => removeFromCart(idx)}
+                              className="shrink-0 min-w-11 min-h-11 flex items-center justify-center rounded-sm text-muted-foreground hover:text-destructive hover:bg-destructive/10 active:scale-95 transition-colors ml-1 -mr-1"
+                            >
+                              <X className="w-5 h-5 stroke-[2.5]" />
                             </button>
                           </div>
                           {modDetails.length > 0 && (
@@ -955,7 +1167,7 @@ const POSPage = () => {
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <button
-                      onClick={() => setSwitchToCashConfirm(true)}
+                      onClick={() => handleSwitchToCash()}
                       className="py-3 bg-primary text-primary-foreground font-sans font-bold text-sm uppercase tracking-wider rounded-md flex items-center justify-center gap-2 hover:opacity-90 active:scale-[0.96] transition-all shadow-md"
                     >
                       <Banknote className="w-4 h-4" /> Pay Cash Instead
@@ -1012,35 +1224,6 @@ const POSPage = () => {
       {/* Item detail modal */}
       {selectedItem && <ItemDetailModal />}
 
-      {/* Confirm switching a live terminal txn to cash */}
-      {switchToCashConfirm && (
-        <div className="fixed inset-0 bg-foreground/40 z-[60] flex items-center justify-center p-4">
-          <div className="bg-background rounded-md shadow-2xl max-w-sm w-full p-5">
-            <h3 className="font-display text-lg font-bold text-foreground mb-1">Cash collected?</h3>
-            <p className="text-sm text-muted-foreground mb-4">
-              Cancel the terminal transaction and save order #{orderNumber} as cash for <strong>${computeTotals(totalPrice, "cash").total.toFixed(2)}</strong>?
-            </p>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                onClick={() => {
-                  setSwitchToCashConfirm(false);
-                  handleSwitchToCash();
-                }}
-                className="py-2.5 bg-emerald-600 text-white font-sans font-bold text-xs uppercase tracking-wider rounded-sm hover:bg-emerald-700 active:scale-[0.96]"
-              >
-                Yes — collected
-              </button>
-              <button
-                onClick={() => setSwitchToCashConfirm(false)}
-                className="py-2.5 bg-muted text-muted-foreground font-sans font-bold text-xs uppercase tracking-wider rounded-sm hover:bg-muted/80 active:scale-[0.96]"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Confirm cash collection for a new POS order — with change calculator */}
       {newOrderCashConfirm && (() => {
         const cashTotal = computeTotals(totalPrice, "cash").total;
@@ -1051,15 +1234,15 @@ const POSPage = () => {
         const quickBills = [cashTotal, 20, 50, 100];
         return (
           <div className="fixed inset-0 bg-foreground/40 z-[60] flex items-center justify-center p-4">
-            <div className="bg-background rounded-md shadow-2xl max-w-sm w-full p-5">
-              <h3 className="font-display text-lg font-bold text-foreground mb-1">Cash payment — Order #{orderNumber}</h3>
-              <p className="text-sm text-muted-foreground mb-3">
-                Total due: <strong className="text-foreground">${cashTotal.toFixed(2)}</strong>
+            <div className="bg-background rounded-md shadow-2xl max-w-md w-full p-6 border border-border">
+              <h3 className="font-display text-xl font-bold text-foreground mb-1">Cash payment — Order #{orderNumber}</h3>
+              <p className="text-base text-muted-foreground mb-4">
+                Total due: <strong className="text-foreground text-lg">${cashTotal.toFixed(2)}</strong>
               </p>
 
-              <label className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider">Cash received</label>
-              <div className="relative mt-1 mb-2">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+              <label className="text-sm font-semibold text-foreground">Cash received</label>
+              <div className="relative mt-1 mb-3">
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground text-lg">$</span>
                 <input
                   type="number"
                   step="0.01"
@@ -1069,34 +1252,35 @@ const POSPage = () => {
                   onChange={(e) => setCashTendered(e.target.value)}
                   placeholder="0.00"
                   autoFocus
-                  className="w-full pl-7 pr-3 py-2.5 bg-muted/40 border border-border rounded-sm text-lg font-bold focus:outline-none focus:ring-1 focus:ring-accent"
+                  className="w-full pl-9 pr-4 py-4 bg-muted/40 border-2 border-border rounded-sm text-2xl font-bold focus:outline-none focus:ring-2 focus:ring-accent"
                 />
               </div>
 
-              <div className="grid grid-cols-4 gap-1.5 mb-3">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
                 {quickBills.map((b, i) => (
                   <button
+                    type="button"
                     key={i}
                     onClick={() => setCashTendered(b.toFixed(2))}
-                    className="py-1.5 text-xs font-sans font-bold bg-muted hover:bg-muted/70 rounded-sm active:scale-95 transition-all"
+                    className="min-h-[52px] py-3 text-base font-sans font-bold bg-muted hover:bg-muted/70 border border-border rounded-sm active:scale-95 transition-all"
                   >
                     {i === 0 ? "Exact" : `$${b}`}
                   </button>
                 ))}
               </div>
 
-              <div className={`rounded-sm p-3 mb-3 ${insufficient ? "bg-destructive/10 border border-destructive/30" : "bg-emerald-50 border border-emerald-200"}`}>
+              <div className={`rounded-sm p-4 mb-4 ${insufficient ? "bg-destructive/10 border-2 border-destructive/30" : "bg-emerald-50 border-2 border-emerald-200"}`}>
                 <div className="flex items-center justify-between">
-                  <span className={`text-xs font-sans font-semibold uppercase tracking-wider ${insufficient ? "text-destructive" : "text-emerald-700"}`}>
+                  <span className={`text-sm font-sans font-bold uppercase tracking-wider ${insufficient ? "text-destructive" : "text-emerald-800"}`}>
                     {insufficient ? "Short by" : "Change due"}
                   </span>
-                  <span className={`text-xl font-sans font-bold ${insufficient ? "text-destructive" : "text-emerald-700"}`}>
+                  <span className={`text-3xl font-sans font-bold ${insufficient ? "text-destructive" : "text-emerald-800"}`}>
                     ${(insufficient ? cashTotal - tendered : change).toFixed(2)}
                   </span>
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-3">
                 <button
                   disabled={!canConfirm}
                   onClick={async () => {
@@ -1117,13 +1301,14 @@ const POSPage = () => {
                       toast.error(e instanceof Error ? e.message : "Failed to save order");
                     }
                   }}
-                  className="py-2.5 bg-emerald-600 text-white font-sans font-bold text-xs uppercase tracking-wider rounded-sm hover:bg-emerald-700 active:scale-[0.96] disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="min-h-[52px] py-3.5 bg-emerald-600 text-white font-sans font-bold text-sm uppercase tracking-wider rounded-sm hover:bg-emerald-700 active:scale-[0.96] disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   Confirm & Save
                 </button>
                 <button
+                  type="button"
                   onClick={() => setNewOrderCashConfirm(false)}
-                  className="py-2.5 bg-muted text-muted-foreground font-sans font-bold text-xs uppercase tracking-wider rounded-sm hover:bg-muted/80 active:scale-[0.96]"
+                  className="min-h-[52px] py-3.5 bg-muted text-foreground font-sans font-bold text-sm rounded-sm hover:bg-muted/80 active:scale-[0.96]"
                 >
                   Cancel
                 </button>
@@ -1202,6 +1387,7 @@ const POSPage = () => {
           </div>
         </div>
       )}
+
 
       {/* Cash fallback for unpaid order card payment */}
       {unpaidCashFallback && (
@@ -1359,8 +1545,8 @@ const POSPage = () => {
                     <div key={order.id} className="bg-card border border-border rounded-sm p-3">
                       <div className="flex items-center justify-between mb-1.5">
                         <div className="flex items-center gap-1.5">
-                          <span className="font-mono text-xs font-bold text-accent">
-                            #{order.id.slice(0, 6).toUpperCase()}
+                          <span className="text-sm font-bold text-accent truncate max-w-[180px]">
+                            {order.customer_name || `#${order.id.slice(0, 6).toUpperCase()}`}
                           </span>
                           {order.source && (
                             <span className={`px-1.5 py-0.5 rounded text-[8px] font-sans font-bold tracking-wider ${
@@ -1490,11 +1676,13 @@ const POSPage = () => {
                   revenueBySource[src] = (revenueBySource[src] || 0) + o.total;
                 });
 
-                // Payment breakdown
+                // Payment breakdown — count and revenue per method
                 const byPayment = { card: 0, cash: 0 };
+                const revenueByPayment = { card: 0, cash: 0 };
                 activeOrders.forEach((o) => {
                   const pay = (o.payment || "card") as keyof typeof byPayment;
                   byPayment[pay] = (byPayment[pay] || 0) + 1;
+                  revenueByPayment[pay] = (revenueByPayment[pay] || 0) + o.total;
                 });
 
                 // Hourly breakdown
@@ -1552,10 +1740,12 @@ const POSPage = () => {
                         <div className="flex-1 bg-blue-50 border border-blue-200 rounded-sm p-3 text-center">
                           <p className="text-xl font-bold text-blue-700">{byPayment.card}</p>
                           <p className="text-[10px] text-blue-600 uppercase">Card</p>
+                          <p className="text-sm font-bold text-blue-700 mt-1">${revenueByPayment.card.toFixed(2)}</p>
                         </div>
                         <div className="flex-1 bg-emerald-50 border border-emerald-200 rounded-sm p-3 text-center">
                           <p className="text-xl font-bold text-emerald-700">{byPayment.cash}</p>
                           <p className="text-[10px] text-emerald-600 uppercase">Cash</p>
+                          <p className="text-sm font-bold text-emerald-700 mt-1">${revenueByPayment.cash.toFixed(2)}</p>
                         </div>
                       </div>
                     </div>
@@ -1602,6 +1792,97 @@ const POSPage = () => {
             </div>
           </div>
         </>
+      )}
+
+      {/* Confirm removal of a Quick Item */}
+      {quickItemPendingRemoval && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4"
+          onClick={() => setQuickItemPendingRemoval(null)}
+        >
+          <div
+            className="bg-background border border-border rounded-md shadow-2xl w-full max-w-sm overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-5 pt-5 pb-3">
+              <h2 className="font-sans font-bold text-base mb-1">Remove from Quick Items?</h2>
+              <p className="text-sm text-muted-foreground">
+                <span className="font-semibold text-foreground">{quickItemPendingRemoval.name}</span>{" "}
+                will be removed from the Quick Items shortcut. The item stays in your menu — you can
+                re-add it anytime via "Manage Quick Items".
+              </p>
+            </div>
+            <div className="px-5 py-3 border-t border-border flex items-center justify-end gap-2">
+              <button
+                onClick={() => setQuickItemPendingRemoval(null)}
+                className="px-4 py-2 border border-border bg-background text-foreground font-sans font-bold text-xs rounded-sm hover:bg-muted active:scale-95 transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  const id = quickItemPendingRemoval.id;
+                  setQuickItemIds((prev) => prev.filter((qid) => qid !== id));
+                  setQuickItemPendingRemoval(null);
+                }}
+                className="px-4 py-2 bg-destructive text-destructive-foreground font-sans font-bold text-xs rounded-sm hover:opacity-90 active:scale-95 transition-all"
+              >
+                Remove
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Quick Items picker */}
+      {showQuickPicker && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setShowQuickPicker(false)}>
+          <div className="bg-background border border-border rounded-md shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
+              <h2 className="font-sans font-bold text-base">Manage Quick Items</h2>
+              <button onClick={() => setShowQuickPicker(false)} className="text-muted-foreground hover:text-foreground">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-3 space-y-4">
+              {categories.map((cat) => (
+                <div key={cat}>
+                  <h3 className="font-sans font-bold text-xs uppercase tracking-wider text-muted-foreground mb-2">{cat}</h3>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    {menuItems.filter((m) => m.category === cat).map((item) => {
+                      const active = quickItemIds.includes(item.id);
+                      return (
+                        <button
+                          key={item.id}
+                          onClick={() =>
+                            setQuickItemIds((prev) =>
+                              active ? prev.filter((id) => id !== item.id) : [...prev, item.id]
+                            )
+                          }
+                          className={`text-left px-2 py-1.5 rounded-sm border-2 transition-all flex items-center justify-between gap-2 ${
+                            active ? "border-accent bg-accent/10" : "border-border bg-background hover:border-accent/40"
+                          }`}
+                        >
+                          <span className="font-sans text-xs font-semibold truncate">{item.name}</span>
+                          <span className="font-sans text-xs font-bold text-accent shrink-0">${item.price.toFixed(2)}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="px-4 py-3 border-t border-border flex items-center justify-between shrink-0">
+              <span className="text-xs font-sans text-muted-foreground">{quickItemIds.length} selected</span>
+              <button
+                onClick={() => setShowQuickPicker(false)}
+                className="px-4 py-2 bg-primary text-primary-foreground font-sans font-bold text-xs rounded-sm hover:opacity-90 active:scale-95"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
