@@ -771,6 +771,7 @@ const POSPage = () => {
                                 try {
                                   await markOrderPaid(order.id);
                                   toast.success(`Cash collected for ${tag}`, { duration: 2000 });
+                                  askToPrint(order.id, tag, order.total);
                                   setExpandedUnpaidOrder(null);
                                 } catch (e) {
                                   toast.error(e instanceof Error ? e.message : "Failed to mark paid");
@@ -1317,43 +1318,6 @@ const POSPage = () => {
           </div>
         );
       })()}
-
-      {/* Confirm cash collection for pending kiosk/unpaid cash order */}
-      {cashCollectConfirm && (
-        <div className="fixed inset-0 bg-foreground/40 z-[60] flex items-center justify-center p-4">
-          <div className="bg-background rounded-md shadow-2xl max-w-sm w-full p-5">
-            <h3 className="font-display text-lg font-bold text-foreground mb-1">Cash collected?</h3>
-            <p className="text-sm text-muted-foreground mb-4">
-              Confirm you received <strong>${cashCollectConfirm.total.toFixed(2)}</strong> in cash for order <strong>{cashCollectConfirm.tag}</strong>.
-            </p>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                onClick={async () => {
-                  const { orderId, tag, total } = cashCollectConfirm;
-                  setCashCollectConfirm(null);
-                  try {
-                    await markOrderPaid(orderId);
-                    toast.success(`Cash collected for ${tag}`, { duration: 2000 });
-                    askToPrint(orderId, tag, total);
-                    setExpandedUnpaidOrder(null);
-                  } catch (e) {
-                    toast.error(e instanceof Error ? e.message : "Failed to mark paid");
-                  }
-                }}
-                className="py-2.5 bg-emerald-600 text-white font-sans font-bold text-xs uppercase tracking-wider rounded-sm hover:bg-emerald-700 active:scale-[0.96]"
-              >
-                Yes — collected
-              </button>
-              <button
-                onClick={() => setCashCollectConfirm(null)}
-                className="py-2.5 bg-muted text-muted-foreground font-sans font-bold text-xs uppercase tracking-wider rounded-sm hover:bg-muted/80 active:scale-[0.96]"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Print receipt prompt — fires after every successful payment */}
       {printPrompt && (
