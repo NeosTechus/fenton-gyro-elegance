@@ -15,7 +15,10 @@ import {
   Hash,
   RotateCcw,
   Banknote,
+  Calendar as CalendarIcon,
 } from "lucide-react";
+import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { menuItems, categories, MenuItem } from "@/data/menu";
 import { toast } from "sonner";
 import ModifierSelector, {
@@ -141,6 +144,8 @@ const POSPage = () => {
   const [historySearch, setHistorySearch] = useState("");
   const [historyDateFilter, setHistoryDateFilter] = useState("today");
   const [historySourceFilter, setHistorySourceFilter] = useState("all");
+  const [historyCustomRange, setHistoryCustomRange] = useState<{ from: Date; to: Date } | null>(null);
+  const [historyDatePickerOpen, setHistoryDatePickerOpen] = useState(false);
 
   const [unpaidOrders, setUnpaidOrders] = useState<Order[]>([]);
   const [showPendingPayments, setShowPendingPayments] = useState(false);
@@ -1434,8 +1439,12 @@ const POSPage = () => {
               <div className="flex gap-2">
                 <select
                   value={historyDateFilter}
-                  onChange={(e) => setHistoryDateFilter(e.target.value)}
-                  className="flex-1 px-2 py-1.5 bg-muted border border-border rounded-sm text-xs font-sans focus:outline-none"
+                  onChange={(e) => {
+                    setHistoryDateFilter(e.target.value);
+                    setHistoryCustomRange(null);
+                  }}
+                  disabled={!!historyCustomRange}
+                  className="flex-1 px-2 py-1.5 bg-muted border border-border rounded-sm text-xs font-sans focus:outline-none disabled:opacity-50"
                 >
                   <option value="today">Today</option>
                   <option value="week">This Week</option>
@@ -1452,6 +1461,55 @@ const POSPage = () => {
                   <option value="web">Web</option>
                 </select>
               </div>
+              <Popover open={historyDatePickerOpen} onOpenChange={setHistoryDatePickerOpen}>
+                <PopoverTrigger asChild>
+                  <button
+                    className={`w-full flex items-center justify-center gap-2 px-3 py-1.5 text-xs font-sans font-semibold rounded-sm border transition-all ${
+                      historyCustomRange
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-muted border-border text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    <CalendarIcon className="w-3.5 h-3.5" />
+                    {historyCustomRange
+                      ? historyCustomRange.from.getTime() === historyCustomRange.to.getTime()
+                        ? historyCustomRange.from.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+                        : `${historyCustomRange.from.toLocaleDateString("en-US", { month: "short", day: "numeric" })} – ${historyCustomRange.to.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`
+                      : "Pick Date Range"}
+                    {historyCustomRange && (
+                      <X
+                        className="w-3 h-3 ml-1 opacity-80 hover:opacity-100"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setHistoryCustomRange(null);
+                        }}
+                      />
+                    )}
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    mode="range"
+                    showOutsideDays={false}
+                    defaultMonth={historyCustomRange?.from ?? new Date()}
+                    selected={historyCustomRange ? { from: historyCustomRange.from, to: historyCustomRange.to } : undefined}
+                    onSelect={(r) => {
+                      if (r?.from) {
+                        const to = r.to ?? r.from;
+                        setHistoryCustomRange({ from: r.from, to });
+                        if (r.to) setHistoryDatePickerOpen(false);
+                      }
+                    }}
+                    disabled={(d) => d > new Date()}
+                    classNames={{
+                      day: "inline-flex items-center justify-center h-9 w-9 p-0 text-sm font-normal text-foreground rounded-md transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring aria-selected:opacity-100",
+                      day_disabled: "text-muted-foreground/40 opacity-50",
+                    }}
+                    initialFocus
+                  />
+                </PopoverContent>
+              </Popover>
             </div>
 
             <div className="flex-1 overflow-y-auto p-3 space-y-2">
@@ -1461,10 +1519,19 @@ const POSPage = () => {
                 const weekStart = new Date(now); weekStart.setDate(now.getDate() - 7); weekStart.setHours(0,0,0,0);
 
                 const filtered = orderHistory.filter((order) => {
-                  // Date filter
+                  // Date filter — custom range overrides preset filter
                   const orderDate = new Date(order.created_at);
-                  if (historyDateFilter === "today" && orderDate < todayStart) return false;
-                  if (historyDateFilter === "week" && orderDate < weekStart) return false;
+                  if (historyCustomRange) {
+                    const start = new Date(historyCustomRange.from);
+                    start.setHours(0, 0, 0, 0);
+                    const end = new Date(historyCustomRange.to);
+                    end.setHours(0, 0, 0, 0);
+                    end.setDate(end.getDate() + 1);
+                    if (orderDate < start || orderDate >= end) return false;
+                  } else {
+                    if (historyDateFilter === "today" && orderDate < todayStart) return false;
+                    if (historyDateFilter === "week" && orderDate < weekStart) return false;
+                  }
 
                   // Source filter
                   if (historySourceFilter !== "all" && order.source !== historySourceFilter) return false;
