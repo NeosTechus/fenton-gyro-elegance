@@ -151,7 +151,8 @@ function firestoreToOrder(id: string, data: any): Order {
  * Returns an unsubscribe function.
  */
 export function subscribeToOrders(
-  callback: (orders: Order[]) => void
+  callback: (orders: Order[]) => void,
+  limitCount: number | null = null
 ): () => void {
   if (!isFirebaseConfigured || !db) {
     callback(mockOrders);
@@ -161,7 +162,7 @@ export function subscribeToOrders(
   const q = query(
     collection(db, "orders"),
     orderBy("created_at", "desc"),
-    limit(200)
+    ...(limitCount === null ? [] : [limit(limitCount)])
   );
 
   return onSnapshot(

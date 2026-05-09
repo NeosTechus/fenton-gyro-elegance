@@ -116,12 +116,14 @@ const toppings: ModifierGroup = {
   id: "toppings",
   label: "Toppings",
   required: false,
-  maxSelect: 10,
+  maxSelect: 12,
   options: [
     { id: "extra-feta", name: "Extra Feta Cheese", price: 0.89 },
     { id: "extra-tzatziki", name: "Extra Tzatziki", price: 0.89 },
-    { id: "extra-hummus", name: "Extra Hummus", price: 0.89 },
     { id: "extra-tahini", name: "Extra Tahini", price: 0.89 },
+    { id: "extra-olives", name: "Add Olives", price: 0.89 },
+    { id: "extra-pepperoncini", name: "Add Pepperoncini", price: 0.5 },
+    { id: "extra-chickpeas", name: "Add Chickpeas", price: 0.5 },
     { id: "jalapenos", name: "Jalapeños", price: 0.5 },
     { id: "extra-onions", name: "Extra Onions", price: 0.00 },
     { id: "extra-tomatoes", name: "Extra Tomatoes", price: 0.00 },
@@ -179,6 +181,16 @@ const butteredChickenPita: ModifierGroup = {
   required: false,
   maxSelect: 1,
   options: [{ id: "side-pita", name: "Side pita bread", price: 1.79 }],
+};
+
+const appetizerExtras: ModifierGroup = {
+  id: "appetizer-extras",
+  label: "Extras",
+  required: false,
+  maxSelect: 2,
+  options: [
+    { id: "extra-pita", name: "Extra Pita", price: 1.79 },
+  ],
 };
 
 const makeItCombo: ModifierGroup = {
@@ -243,23 +255,23 @@ export const menuItems: MenuItem[] = [
   { id: "pita-pizza", name: "Pita Pizza (Cheese)", desc: "Cheese pizza on pita bread", price: 4.99, category: "Gyros", image: foodPitaPizza, modifiers: [removeIngredients], allergens: ["wheat", "dairy"], vegetarian: true },
 
   // ── BOWLS ────────────────────────────────────────────────────────────
-  { id: "gyro-bowl", name: "Gyro Bowl", desc: "Gyro slices, lettuce, tomatoes and onions over basmati rice & drizzled with sriracha ranch", price: 11.99, category: "Bowls", image: foodGyroBowl, tag: "Popular", modifiers: [toppings, removeIngredients, doubleMeat], allergens: ["dairy"] },
-  { id: "chicken-bowl", name: "Chicken Bowl", desc: "Grilled chicken, chickpeas, onions, tomatoes, cucumbers & tzatziki over basmati rice", price: 11.99, category: "Bowls", image: foodShawarmaBowl, modifiers: [toppings, removeIngredients, doubleMeat], allergens: ["dairy"] },
-  { id: "falafel-bowl", name: "Falafel Bowl", desc: "Falafel fritters, chickpeas, onions, tomatoes, cucumber and feta cheese and tzatziki sauce served over rice", price: 11.99, category: "Bowls", image: foodFalafelPlate, modifiers: [toppings, removeIngredients], allergens: ["dairy"], vegetarian: true },
+  { id: "gyro-bowl", name: "Gyro Bowl", desc: "Gyro slices, lettuce, tomatoes and onions over basmati rice & drizzled with sriracha ranch", price: 11.99, category: "Bowls", image: foodGyroBowl, tag: "Popular", modifiers: [toppings, removeIngredients, doubleMeat, makeItMeal], allergens: ["dairy"] },
+  { id: "chicken-bowl", name: "Chicken Bowl", desc: "Grilled chicken, chickpeas, onions, tomatoes, cucumbers & tzatziki over basmati rice", price: 11.99, category: "Bowls", image: foodShawarmaBowl, modifiers: [toppings, removeIngredients, doubleMeat, makeItMeal], allergens: ["dairy"] },
+  { id: "falafel-bowl", name: "Falafel Bowl", desc: "Falafel fritters, chickpeas, onions, tomatoes, cucumber and feta cheese and tzatziki sauce served over rice", price: 11.99, category: "Bowls", image: foodFalafelPlate, modifiers: [toppings, removeIngredients, makeItMeal], allergens: ["dairy"], vegetarian: true },
   { id: "buttered-chicken", name: "Buttered Chicken", desc: "Chunks of white meat chicken simmered in a creamy saffron curry sauce served over rice", price: 10.99, category: "Bowls", image: foodButteredChicken, tag: "New", modifiers: [butteredChickenPita], allergens: ["dairy"] },
 
   // ── SALADS ───────────────────────────────────────────────────────────
-  { id: "gyro-salad", name: "Gyro Salad", desc: "Your choice of Gyro slices or grilled chicken, mixed lettuce, feta, onions, tomatoes, cucumbers, olives, green peppers & tzatziki sauce", price: 12.99, category: "Salads", image: foodGyroSalad, modifiers: [gyroSaladProtein, removeIngredients, doubleMeat], allergens: ["dairy"] },
-  { id: "mediterranean-salad", name: "Mediterranean Salad", desc: "Mixed lettuce, tomatoes, cucumbers, red onions, green peppers, feta cheese & greek vinaigrette", price: 9.99, category: "Salads", image: foodMedSalad, modifiers: [medSaladAddProtein, removeIngredients], allergens: ["dairy"], vegetarian: true },
-  { id: "falafel-salad", name: "Falafel Salad", desc: "2 Falafel fritters, lettuce, chopped greens, tomatoes, cucumbers, red cabbage, chickpeas, red onions & greek vinaigrette", price: 10.99, category: "Salads", image: foodFalafelSalad, modifiers: [removeIngredients], vegetarian: true },
+  { id: "gyro-salad", name: "Gyro Salad", desc: "Your choice of Gyro slices or grilled chicken, mixed lettuce, feta, onions, tomatoes, cucumbers, olives, green peppers & tzatziki sauce", price: 12.99, category: "Salads", image: foodGyroSalad, modifiers: [gyroSaladProtein, removeIngredients, doubleMeat, makeItMeal], allergens: ["dairy"] },
+  { id: "mediterranean-salad", name: "Mediterranean Salad", desc: "Mixed lettuce, tomatoes, cucumbers, red onions, green peppers, feta cheese & greek vinaigrette", price: 9.99, category: "Salads", image: foodMedSalad, modifiers: [medSaladAddProtein, removeIngredients, makeItMeal], allergens: ["dairy"], vegetarian: true },
+  { id: "falafel-salad", name: "Falafel Salad", desc: "2 Falafel fritters, lettuce, chopped greens, tomatoes, cucumbers, red cabbage, chickpeas, red onions & greek vinaigrette", price: 10.99, category: "Salads", image: foodFalafelSalad, modifiers: [removeIngredients, makeItMeal], vegetarian: true },
 
   // ── APPETIZERS ───────────────────────────────────────────────────────
-  { id: "hummus-plate", name: "Hummus Plate", desc: "Roasted garlic hummus served with 2 sliced pitas", price: 6.99, category: "Appetizers", image: foodHummus, tag: "Popular", modifiers: [removeIngredients], allergens: ["wheat", "sesame"], vegetarian: true },
-  { id: "tzatziki-dip", name: "Tzatziki Dip", desc: "Our Homemade Tzatziki Sauce with 2 slices of Pita Bread", price: 6.99, category: "Appetizers", image: foodTzatziki, modifiers: [removeIngredients], allergens: ["wheat", "dairy"], vegetarian: true },
-  { id: "spinach-pie", name: "Spinach Pie", desc: "Spinach & feta cheese inside a flaky phyllo dough with tzatziki", price: 7.99, category: "Appetizers", image: foodSpinachPie, modifiers: [removeIngredients], allergens: ["wheat", "dairy"], vegetarian: true },
-  { id: "falafel-appetizer", name: "Falafel Appetizer", desc: "Five falafel fritters served with our tzatziki sauce and a sliced pita", price: 6.99, category: "Appetizers", image: foodFalafelPlate, modifiers: [removeIngredients], allergens: ["wheat", "dairy"], vegetarian: true },
-  { id: "grape-leaves", name: "Stuffed Grape Leaves", desc: "Grape leaves stuffed with vegetables & rice", price: 7.99, category: "Appetizers", image: foodGrapeLeaves, modifiers: [removeIngredients], vegetarian: true },
-  { id: "beef-rice-balls", name: "Beef Rice Balls", desc: "4 rice balls with side of garlic sauce", price: 7.99, category: "Appetizers", image: foodRiceBalls, modifiers: [removeIngredients], allergens: ["wheat", "dairy", "eggs"] },
+  { id: "hummus-plate", name: "Hummus Plate", desc: "Roasted garlic hummus served with 2 sliced pitas", price: 6.99, category: "Appetizers", image: foodHummus, tag: "Popular", modifiers: [appetizerExtras], allergens: ["wheat", "sesame"], vegetarian: true },
+  { id: "tzatziki-dip", name: "Tzatziki Dip", desc: "Our Homemade Tzatziki Sauce with 2 slices of Pita Bread", price: 6.99, category: "Appetizers", image: foodTzatziki, modifiers: [appetizerExtras], allergens: ["wheat", "dairy"], vegetarian: true },
+  { id: "spinach-pie", name: "Spinach Pie", desc: "Spinach & feta cheese inside a flaky phyllo dough with tzatziki", price: 7.99, category: "Appetizers", image: foodSpinachPie, modifiers: [appetizerExtras], allergens: ["wheat", "dairy"], vegetarian: true },
+  { id: "falafel-appetizer", name: "Falafel Appetizer", desc: "Five falafel fritters served with our tzatziki sauce and a sliced pita", price: 6.99, category: "Appetizers", image: foodFalafelPlate, modifiers: [appetizerExtras], allergens: ["wheat", "dairy"], vegetarian: true },
+  { id: "grape-leaves", name: "Stuffed Grape Leaves", desc: "Grape leaves stuffed with vegetables & rice", price: 7.99, category: "Appetizers", image: foodGrapeLeaves, modifiers: [appetizerExtras], vegetarian: true },
+  { id: "beef-rice-balls", name: "Beef Rice Balls", desc: "4 rice balls with side of garlic sauce", price: 7.99, category: "Appetizers", image: foodRiceBalls, modifiers: [appetizerExtras], allergens: ["wheat", "dairy", "eggs"] },
 
   // ── SIDES / EXTRAS ───────────────────────────────────────────────────
   { id: "french-fries", name: "French Fries or Tots", desc: "Crispy fries or tater tots", price: 3.49, category: "Sides", image: foodFries, modifiers: [friesOrTots], vegetarian: true },
@@ -305,8 +317,8 @@ export const menuItems: MenuItem[] = [
   { id: "sport-bottle-water", name: "Sport Bottle Water", desc: "Sports cap bottled water", price: 2.79, category: "Drinks", image: foodAyran, vegetarian: true },
   { id: "kids-juice", name: "Kids Juice", desc: "Kids juice box or cup", price: 1.79, category: "Drinks", image: foodMintLemonade, vegetarian: true },
   { id: "can-soda", name: "Can Soda", desc: "Assorted canned sodas", price: 1.59, category: "Drinks", image: foodSoda, vegetarian: true },
-  { id: "drink-addon-1", name: "Add On 1", desc: "Quick-add drink", price: 1.0, category: "Drinks", image: foodSoda, vegetarian: true },
-  { id: "drink-addon-2", name: "Add On 2", desc: "Quick-add drink", price: 0.89, category: "Drinks", image: foodSoda, vegetarian: true },
+  { id: "drink-addon-1", name: "Add On 1", desc: "Quick-add drink", price: 1.0, category: "Drinks", image: foodSoda, vegetarian: true, posOnly: true },
+  { id: "drink-addon-2", name: "Add On 2", desc: "Quick-add drink", price: 0.89, category: "Drinks", image: foodSoda, vegetarian: true, posOnly: true },
 ];
 
 export const categories = [...new Set(menuItems.map((i) => i.category))];

@@ -41,6 +41,61 @@ import { DollarSign, ChevronDown, BarChart3 } from "lucide-react";
 
 type OrderType = "dine-in" | "take-out";
 
+// Category-tab color palette — keys are the category names; "default" is the fallback.
+// Tailwind classes are kept as full literal strings so the JIT picks them up.
+const CATEGORY_COLORS: Record<string, { active: string; inactive: string; tile: string }> = {
+  "Quick Items": {
+    active: "bg-slate-700 text-white border-slate-700 shadow-sm",
+    inactive: "bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200",
+    tile: "bg-slate-200 border-slate-400 hover:border-slate-600",
+  },
+  Gyros: {
+    active: "bg-red-600 text-white border-red-600 shadow-sm",
+    inactive: "bg-red-50 text-red-700 border-red-200 hover:bg-red-100",
+    tile: "bg-red-200 border-red-400 hover:border-red-600",
+  },
+  Bowls: {
+    active: "bg-orange-600 text-white border-orange-600 shadow-sm",
+    inactive: "bg-orange-50 text-orange-700 border-orange-200 hover:bg-orange-100",
+    tile: "bg-orange-200 border-orange-400 hover:border-orange-600",
+  },
+  Salads: {
+    active: "bg-green-600 text-white border-green-600 shadow-sm",
+    inactive: "bg-green-50 text-green-700 border-green-200 hover:bg-green-100",
+    tile: "bg-green-200 border-green-400 hover:border-green-600",
+  },
+  Sides: {
+    active: "bg-amber-600 text-white border-amber-600 shadow-sm",
+    inactive: "bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100",
+    tile: "bg-amber-200 border-amber-400 hover:border-amber-600",
+  },
+  Appetizers: {
+    active: "bg-purple-600 text-white border-purple-600 shadow-sm",
+    inactive: "bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100",
+    tile: "bg-purple-200 border-purple-400 hover:border-purple-600",
+  },
+  Drinks: {
+    active: "bg-blue-600 text-white border-blue-600 shadow-sm",
+    inactive: "bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100",
+    tile: "bg-blue-200 border-blue-400 hover:border-blue-600",
+  },
+  Desserts: {
+    active: "bg-pink-600 text-white border-pink-600 shadow-sm",
+    inactive: "bg-pink-50 text-pink-700 border-pink-200 hover:bg-pink-100",
+    tile: "bg-pink-200 border-pink-400 hover:border-pink-600",
+  },
+  Kids: {
+    active: "bg-yellow-500 text-white border-yellow-500 shadow-sm",
+    inactive: "bg-yellow-50 text-yellow-800 border-yellow-200 hover:bg-yellow-100",
+    tile: "bg-yellow-200 border-yellow-400 hover:border-yellow-600",
+  },
+  default: {
+    active: "bg-primary text-primary-foreground border-primary shadow-sm",
+    inactive: "bg-muted text-muted-foreground border-border hover:bg-muted/80",
+    tile: "bg-muted border-border hover:border-accent/50",
+  },
+};
+
 interface CartItem {
   item: MenuItem;
   qty: number;
@@ -65,6 +120,7 @@ const POSPage = () => {
     localStorage.setItem("pos-quick-items", JSON.stringify(quickItemIds));
   }, [quickItemIds]);
   const [showQuickPicker, setShowQuickPicker] = useState(false);
+  const [quickItemPendingRemoval, setQuickItemPendingRemoval] = useState<MenuItem | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string>(QUICK_CAT);
   const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null);
   const [itemQty, setItemQty] = useState(1);
@@ -463,7 +519,7 @@ const POSPage = () => {
   };
 
   return (
-    <div className="h-screen bg-muted flex flex-col overflow-hidden">
+    <div className="high-vis h-screen bg-muted flex flex-col overflow-hidden">
       {/* POS Top Bar */}
       <header className="bg-primary text-primary-foreground px-4 py-2 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-4">
@@ -792,19 +848,21 @@ const POSPage = () => {
             </div>
             {!searchQuery.trim() && (
               <div className="flex gap-1.5 overflow-x-auto pb-2 scrollbar-hide">
-                {[QUICK_CAT, ...categories].map((cat) => (
-                  <button
-                    key={cat}
-                    onClick={() => setSelectedCategory(cat)}
-                    className={`px-4 py-2 text-sm font-sans font-semibold rounded-sm whitespace-nowrap transition-all active:scale-95 ${
-                      selectedCategory === cat
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-muted text-muted-foreground hover:text-foreground hover:bg-muted/80"
-                    }`}
-                  >
-                    {cat}
-                  </button>
-                ))}
+                {[QUICK_CAT, ...categories].map((cat) => {
+                  const palette = CATEGORY_COLORS[cat] ?? CATEGORY_COLORS.default;
+                  const isActive = selectedCategory === cat;
+                  return (
+                    <button
+                      key={cat}
+                      onClick={() => setSelectedCategory(cat)}
+                      className={`px-4 py-2 text-sm font-sans font-semibold rounded-sm whitespace-nowrap transition-all active:scale-95 border ${
+                        isActive ? palette.active : palette.inactive
+                      }`}
+                    >
+                      {cat}
+                    </button>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -821,7 +879,10 @@ const POSPage = () => {
                   <span className="font-sans text-xs font-bold">Add Quick Item</span>
                 </button>
               )}
-              {filteredItems.map((item) => (
+              {filteredItems.map((item) => {
+                const tilePalette =
+                  (CATEGORY_COLORS[item.category] ?? CATEGORY_COLORS.default).tile;
+                return (
                 <button
                   key={item.id}
                   onClick={() => {
@@ -839,7 +900,7 @@ const POSPage = () => {
                     setItemQty(1);
                     setSelectedMods(getDefaultSelectedMods(item));
                   }}
-                  className="bg-background border-2 border-border rounded-md p-1.5 text-left hover:border-accent/50 hover:shadow-md active:scale-[0.96] transition-all group relative flex flex-col min-h-0 overflow-hidden"
+                  className={`border-2 rounded-md p-1.5 text-left hover:shadow-md active:scale-[0.96] transition-all group relative flex flex-col min-h-0 overflow-hidden ${tilePalette}`}
                 >
                   {item.image && (
                     <img src={item.image} alt={item.name} className="w-full flex-1 min-h-0 object-cover rounded-sm mb-1" />
@@ -855,7 +916,14 @@ const POSPage = () => {
                       tabIndex={0}
                       onClick={(e) => {
                         e.stopPropagation();
-                        setQuickItemIds((prev) => prev.filter((id) => id !== item.id));
+                        setQuickItemPendingRemoval(item);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setQuickItemPendingRemoval(item);
+                        }
                       }}
                       className="absolute top-1 left-1 w-5 h-5 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center text-xs font-bold hover:scale-110 transition-transform"
                       title="Remove from Quick Items"
@@ -864,7 +932,8 @@ const POSPage = () => {
                     </span>
                   )}
                 </button>
-              ))}
+                );
+              })}
             </div>
           </div>
         </div>
@@ -1499,11 +1568,13 @@ const POSPage = () => {
                   revenueBySource[src] = (revenueBySource[src] || 0) + o.total;
                 });
 
-                // Payment breakdown
+                // Payment breakdown — count and revenue per method
                 const byPayment = { card: 0, cash: 0 };
+                const revenueByPayment = { card: 0, cash: 0 };
                 activeOrders.forEach((o) => {
                   const pay = (o.payment || "card") as keyof typeof byPayment;
                   byPayment[pay] = (byPayment[pay] || 0) + 1;
+                  revenueByPayment[pay] = (revenueByPayment[pay] || 0) + o.total;
                 });
 
                 // Hourly breakdown
@@ -1561,10 +1632,12 @@ const POSPage = () => {
                         <div className="flex-1 bg-blue-50 border border-blue-200 rounded-sm p-3 text-center">
                           <p className="text-xl font-bold text-blue-700">{byPayment.card}</p>
                           <p className="text-[10px] text-blue-600 uppercase">Card</p>
+                          <p className="text-sm font-bold text-blue-700 mt-1">${revenueByPayment.card.toFixed(2)}</p>
                         </div>
                         <div className="flex-1 bg-emerald-50 border border-emerald-200 rounded-sm p-3 text-center">
                           <p className="text-xl font-bold text-emerald-700">{byPayment.cash}</p>
                           <p className="text-[10px] text-emerald-600 uppercase">Cash</p>
+                          <p className="text-sm font-bold text-emerald-700 mt-1">${revenueByPayment.cash.toFixed(2)}</p>
                         </div>
                       </div>
                     </div>
@@ -1611,6 +1684,46 @@ const POSPage = () => {
             </div>
           </div>
         </>
+      )}
+
+      {/* Confirm removal of a Quick Item */}
+      {quickItemPendingRemoval && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4"
+          onClick={() => setQuickItemPendingRemoval(null)}
+        >
+          <div
+            className="bg-background border border-border rounded-md shadow-2xl w-full max-w-sm overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-5 pt-5 pb-3">
+              <h2 className="font-sans font-bold text-base mb-1">Remove from Quick Items?</h2>
+              <p className="text-sm text-muted-foreground">
+                <span className="font-semibold text-foreground">{quickItemPendingRemoval.name}</span>{" "}
+                will be removed from the Quick Items shortcut. The item stays in your menu — you can
+                re-add it anytime via "Manage Quick Items".
+              </p>
+            </div>
+            <div className="px-5 py-3 border-t border-border flex items-center justify-end gap-2">
+              <button
+                onClick={() => setQuickItemPendingRemoval(null)}
+                className="px-4 py-2 border border-border bg-background text-foreground font-sans font-bold text-xs rounded-sm hover:bg-muted active:scale-95 transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  const id = quickItemPendingRemoval.id;
+                  setQuickItemIds((prev) => prev.filter((qid) => qid !== id));
+                  setQuickItemPendingRemoval(null);
+                }}
+                className="px-4 py-2 bg-destructive text-destructive-foreground font-sans font-bold text-xs rounded-sm hover:opacity-90 active:scale-95 transition-all"
+              >
+                Remove
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Quick Items picker */}

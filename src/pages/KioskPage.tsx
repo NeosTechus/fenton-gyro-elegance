@@ -115,9 +115,12 @@ const KioskPage = () => {
     };
   }, [resetInactivityTimer]);
 
+  // Kiosk hides POS-only quick-add helpers (e.g. drink add-on shortcuts).
+  const kioskMenuItems = menuItems.filter((m) => !m.posOnly);
+
   const categoryImages: Record<string, string> = {};
   categories.forEach((cat) => {
-    const first = menuItems.find((m) => m.category === cat);
+    const first = kioskMenuItems.find((m) => m.category === cat);
     if (first) categoryImages[cat] = first.image;
   });
 
@@ -263,17 +266,23 @@ const KioskPage = () => {
 
   const TopBar = ({ backLabel, onBack }: { backLabel: string; onBack: () => void }) => (
     <header className="sticky top-0 z-40 bg-background/95 backdrop-blur-sm border-b border-border">
-      <div className="flex items-center justify-between px-6 py-3">
-        <button onClick={onBack} className="flex items-center gap-2 text-sm font-sans font-semibold text-muted-foreground hover:text-foreground active:scale-95 transition-all">
-          <ArrowLeft className="w-4 h-4" />
+      <div className="flex items-center justify-between px-6 py-4">
+        <button
+          onClick={onBack}
+          className="flex items-center gap-3 px-4 py-3 text-lg font-sans font-bold text-foreground border-2 border-border rounded-md hover:bg-muted hover:border-foreground/40 active:scale-95 transition-all"
+        >
+          <ArrowLeft className="w-6 h-6" />
           {backLabel}
         </button>
-        <p className="font-serif text-lg font-medium text-foreground">Fenton Gyro</p>
-        <button onClick={() => setStep("cart")} className="flex items-center gap-2 px-4 py-2 bg-accent text-accent-foreground font-sans font-semibold text-sm rounded-sm hover:opacity-90 active:scale-[0.97] transition-all">
-          <ShoppingBag className="w-4 h-4" />
+        <p className="font-serif text-xl md:text-2xl font-medium text-foreground">Fenton Gyro</p>
+        <button
+          onClick={() => setStep("cart")}
+          className="flex items-center gap-3 px-5 py-3 bg-accent text-accent-foreground font-sans font-bold text-xl rounded-md shadow-sm hover:opacity-90 active:scale-[0.97] transition-all"
+        >
+          <ShoppingBag className="w-6 h-6" />
           ${totalPrice.toFixed(2)}
           {totalItems > 0 && (
-            <span className="ml-1 w-5 h-5 bg-primary text-primary-foreground text-[10px] font-bold rounded-full flex items-center justify-center">
+            <span className="ml-1 w-7 h-7 bg-primary text-primary-foreground text-sm font-bold rounded-full flex items-center justify-center">
               {totalItems}
             </span>
           )}
@@ -335,13 +344,16 @@ const KioskPage = () => {
       <div className="h-screen flex flex-col relative overflow-hidden">
         <img src={heroImage} alt="Fenton Gyro" className="absolute inset-0 w-full h-full object-cover" />
         <div className="absolute inset-0 bg-primary/70" />
-        <header className="relative z-10 flex items-center justify-between px-6 py-3 bg-background/90 backdrop-blur-sm border-b border-border">
-          <button onClick={() => setStep("welcome")} className="flex items-center gap-2 text-sm font-sans font-semibold text-muted-foreground hover:text-foreground active:scale-95 transition-all">
-            <ArrowLeft className="w-4 h-4" /> Back
+        <header className="relative z-10 flex items-center justify-between px-6 py-4 bg-background/90 backdrop-blur-sm border-b border-border">
+          <button
+            onClick={() => setStep("welcome")}
+            className="flex items-center gap-3 px-4 py-3 text-lg font-sans font-bold text-foreground border-2 border-border rounded-md hover:bg-muted hover:border-foreground/40 active:scale-95 transition-all"
+          >
+            <ArrowLeft className="w-6 h-6" /> Back
           </button>
-          <p className="font-serif text-lg font-medium text-foreground">Fenton Gyro</p>
-          <div className="flex items-center gap-2 px-4 py-2 text-muted-foreground font-sans font-semibold text-sm">
-            <ShoppingBag className="w-4 h-4" /> $0.00
+          <p className="font-serif text-xl md:text-2xl font-medium text-foreground">Fenton Gyro</p>
+          <div className="flex items-center gap-3 px-5 py-3 text-muted-foreground font-sans font-bold text-xl">
+            <ShoppingBag className="w-6 h-6" /> $0.00
           </div>
         </header>
         <div className="relative z-10 flex-1 flex flex-col items-center justify-center px-8">
@@ -362,7 +374,7 @@ const KioskPage = () => {
   }
 
   const searchResults = searchQuery.trim()
-    ? menuItems.filter((m) => m.name.toLowerCase().includes(searchQuery.toLowerCase()) || m.category.toLowerCase().includes(searchQuery.toLowerCase()))
+    ? kioskMenuItems.filter((m) => m.name.toLowerCase().includes(searchQuery.toLowerCase()) || m.category.toLowerCase().includes(searchQuery.toLowerCase()))
     : [];
 
   // ===== STEP 3: CATEGORIES =====
@@ -424,7 +436,7 @@ const KioskPage = () => {
 
   // ===== STEP 4: ITEMS =====
   if (step === "items" && selectedCategory) {
-    const filteredItems = menuItems.filter((m) => m.category === selectedCategory);
+    const filteredItems = kioskMenuItems.filter((m) => m.category === selectedCategory);
     return (
       <div className="min-h-screen bg-background flex flex-col">
         <TopBar backLabel="All Categories" onBack={() => setStep("categories")} />
@@ -464,12 +476,16 @@ const KioskPage = () => {
     return (
       <div className="min-h-screen max-h-[100dvh] bg-background flex flex-col overflow-hidden">
         <header className="sticky top-0 z-40 bg-background/95 backdrop-blur-sm border-b border-border shrink-0">
-          <div className="flex items-center justify-between px-4 py-2">
-            <button type="button" onClick={() => setStep("items")} className="flex items-center gap-2 text-xs font-sans font-semibold text-muted-foreground hover:text-foreground active:scale-95 transition-all">
-              <ArrowLeft className="w-4 h-4" /> Menu
+          <div className="flex items-center justify-between px-6 py-4">
+            <button
+              type="button"
+              onClick={() => setStep("items")}
+              className="flex items-center gap-3 px-4 py-3 text-lg font-sans font-bold text-foreground border-2 border-border rounded-md hover:bg-muted hover:border-foreground/40 active:scale-95 transition-all"
+            >
+              <ArrowLeft className="w-6 h-6" /> Menu
             </button>
-            <p className="font-serif text-base font-medium text-foreground">Fenton Gyro</p>
-            <div className="w-14" />
+            <p className="font-serif text-xl md:text-2xl font-medium text-foreground">Fenton Gyro</p>
+            <div className="w-28" />
           </div>
         </header>
         <main className="flex-1 min-h-0 p-3 animate-fade-up opacity-0 overflow-hidden flex flex-col">

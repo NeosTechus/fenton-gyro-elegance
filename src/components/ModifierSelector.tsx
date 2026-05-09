@@ -2,6 +2,49 @@ import { ModifierGroup, MenuItem } from "@/data/menu";
 
 const NONE = "__none__";
 
+// Modifier-group palette — colors group containers + labels in the POS layout
+// so chefs can scan add-on categories at a glance.
+const MOD_GROUP_PALETTE: Record<string, { container: string; label: string }> = {
+  toppings: {
+    container: "border-l-4 border-l-green-500 bg-green-50/30 pl-3 py-1.5 rounded-r-md",
+    label: "text-green-800",
+  },
+  "double-meat": {
+    container: "border-l-4 border-l-red-500 bg-red-50/30 pl-3 py-1.5 rounded-r-md",
+    label: "text-red-800",
+  },
+  remove: {
+    container: "border-l-4 border-l-rose-500 bg-rose-50/30 pl-3 py-1.5 rounded-r-md",
+    label: "text-rose-800",
+  },
+  combo: {
+    container: "border-l-4 border-l-purple-500 bg-purple-50/30 pl-3 py-1.5 rounded-r-md",
+    label: "text-purple-800",
+  },
+  meal: {
+    container: "border-l-4 border-l-purple-500 bg-purple-50/30 pl-3 py-1.5 rounded-r-md",
+    label: "text-purple-800",
+  },
+  "fries-tots": {
+    container: "border-l-4 border-l-amber-500 bg-amber-50/30 pl-3 py-1.5 rounded-r-md",
+    label: "text-amber-800",
+  },
+  "gyro-salad-protein": {
+    container: "border-l-4 border-l-orange-500 bg-orange-50/30 pl-3 py-1.5 rounded-r-md",
+    label: "text-orange-800",
+  },
+  "bowl-protein": {
+    container: "border-l-4 border-l-orange-500 bg-orange-50/30 pl-3 py-1.5 rounded-r-md",
+    label: "text-orange-800",
+  },
+  default: {
+    container: "border-l-4 border-l-accent bg-accent/5 pl-3 py-1.5 rounded-r-md",
+    label: "text-foreground",
+  },
+};
+
+const getModPalette = (id: string) => MOD_GROUP_PALETTE[id] ?? MOD_GROUP_PALETTE.default;
+
 interface ModifierSelectorProps {
   groups: ModifierGroup[];
   selected: Record<string, string[]>; // groupId -> optionId[]
@@ -32,11 +75,14 @@ const ModifierSelector = ({ groups, selected, onChange, layout = "default" }: Mo
       const raw = groupSelected[0];
       const value: string =
         raw ?? (group.required && group.options.length > 0 ? group.options[0].id : NONE);
+      const palette = isPos ? getModPalette(group.id) : null;
 
       return (
-        <div key={group.id} className={isPos ? "min-w-0" : undefined}>
+        <div key={group.id} className={isPos ? `min-w-0 ${palette!.container}` : undefined}>
           <div className="flex items-center justify-between gap-2 mb-1.5">
-            <label className={`font-sans font-semibold text-foreground leading-tight ${isPos ? "text-base" : "text-xs"}`}>
+            <label
+              className={`font-sans font-semibold leading-tight ${isPos ? `text-base ${palette!.label}` : "text-xs text-foreground"}`}
+            >
               {group.label}
             </label>
             <span
@@ -75,10 +121,14 @@ const ModifierSelector = ({ groups, selected, onChange, layout = "default" }: Mo
       ? "grid grid-cols-2 min-[480px]:grid-cols-3 min-[720px]:grid-cols-4 min-[1100px]:grid-cols-5 min-[1500px]:grid-cols-6 gap-2"
       : "space-y-0.5 rounded-sm border border-border bg-muted/30 p-1.5 max-h-[9.5rem] overflow-y-auto overscroll-contain [overflow-anchor:none]";
 
+    const palette = isPos ? getModPalette(group.id) : null;
+
     return (
-      <div key={group.id} className={isPos ? "min-w-0 flex flex-col" : undefined}>
+      <div key={group.id} className={isPos ? `min-w-0 flex flex-col ${palette!.container}` : undefined}>
         <div className="flex items-center justify-between gap-1 mb-1.5">
-          <h4 className={`font-sans font-semibold text-foreground leading-tight truncate ${isPos ? "text-base" : "text-xs"}`}>
+          <h4
+            className={`font-sans font-semibold leading-tight truncate ${isPos ? `text-base ${palette!.label}` : "text-xs text-foreground"}`}
+          >
             {group.label}
           </h4>
           <span

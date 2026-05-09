@@ -79,8 +79,16 @@ const SOURCE_BADGE: Record<string, { bg: string; text: string; label: string }> 
   web: { bg: "bg-amber-100", text: "text-amber-700", label: "WEB" },
 };
 
+const ORDER_TYPE_BADGE: Record<string, { bg: string; text: string; label: string }> = {
+  "dine-in": { bg: "bg-emerald-100", text: "text-emerald-800", label: "DINE-IN" },
+  "take-out": { bg: "bg-orange-100", text: "text-orange-800", label: "TAKE-OUT" },
+  pickup: { bg: "bg-orange-100", text: "text-orange-800", label: "PICKUP" },
+  delivery: { bg: "bg-indigo-100", text: "text-indigo-800", label: "DELIVERY" },
+};
+
 const OrderCard = ({ order, onStatusChange, actionLabel, actionStatus }: OrderCardProps) => {
   const sourceBadge = order.source ? SOURCE_BADGE[order.source] : null;
+  const orderTypeBadge = order.order_type ? ORDER_TYPE_BADGE[order.order_type] : null;
 
   return (
   <div className={`bg-card border-2 rounded-sm p-4 hover-lift ${
@@ -91,11 +99,16 @@ const OrderCard = ({ order, onStatusChange, actionLabel, actionStatus }: OrderCa
   }`}>
     {/* Header */}
     <div className="flex items-center justify-between mb-3">
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 flex-wrap">
         <span className="text-sm font-bold text-accent truncate max-w-[180px]">{order.customer_name || `#${order.id.slice(0, 6).toUpperCase()}`}</span>
         {sourceBadge && (
           <span className={`inline-flex items-center px-2 py-0.5 rounded-sm text-[10px] font-sans font-bold tracking-wider ${sourceBadge.bg} ${sourceBadge.text}`}>
             {sourceBadge.label}
+          </span>
+        )}
+        {orderTypeBadge && (
+          <span className={`inline-flex items-center px-2 py-0.5 rounded-sm text-[10px] font-sans font-bold tracking-wider ${orderTypeBadge.bg} ${orderTypeBadge.text}`}>
+            {orderTypeBadge.label}
           </span>
         )}
       </div>
@@ -306,18 +319,18 @@ const KitchenDisplay = () => {
   };
 
   const countByStatus = (s: OrderStatus) =>
-    s === "completed"
-      ? orders.filter((o) => o.status === "completed" && isSameLocalCalendarDay(o.created_at)).length
+    s === "completed" || s === "cancelled"
+      ? orders.filter((o) => o.status === s && isSameLocalCalendarDay(o.created_at)).length
       : orders.filter((o) => o.status === s).length;
   const pending = orders.filter((o) => o.status === "pending"); // web orders waiting for chef
   const received = orders.filter((o) => o.status === "received");
   const preparing = orders.filter((o) => o.status === "preparing");
   const ready = orders.filter((o) => o.status === "ready");
   const completedToday = orders.filter((o) => o.status === "completed" && isSameLocalCalendarDay(o.created_at));
-  const cancelled = orders.filter((o) => o.status === "cancelled");
+  const cancelled = orders.filter((o) => o.status === "cancelled" && isSameLocalCalendarDay(o.created_at));
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="high-vis min-h-screen bg-background">
       {/* Header */}
       <header className="sticky top-0 z-40 bg-background/90 backdrop-blur-sm border-b border-border">
         <div className="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between">
@@ -514,7 +527,7 @@ const KitchenDisplay = () => {
           >
             <div className="flex items-center gap-2">
               <X className="w-4 h-4 text-destructive" />
-              <h2 className="font-serif text-lg font-medium">Rejected Orders ({cancelled.length})</h2>
+              <h2 className="font-serif text-lg font-medium">Rejected Today ({cancelled.length})</h2>
             </div>
             <span className="text-sm text-muted-foreground font-sans font-semibold">
               {showRejected ? "Hide" : "Show"}
@@ -526,7 +539,7 @@ const KitchenDisplay = () => {
                 <OrderCard key={o.id} order={o} onStatusChange={handleStatusChange} />
               ))}
               {cancelled.length === 0 && (
-                <p className="text-sm text-muted-foreground col-span-3 text-center py-6">No rejected orders</p>
+                <p className="text-sm text-muted-foreground col-span-3 text-center py-6">No rejected orders today</p>
               )}
             </div>
           )}
