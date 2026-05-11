@@ -16,8 +16,8 @@
  */
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { adminDb } from "../_lib/firebase-admin";
-import { buildReceiptXml } from "../_lib/receipt-xml";
+import { adminDb } from "../_lib/firebase-admin.js";
+import { buildReceiptXml } from "../_lib/receipt-xml.js";
 import { FieldValue } from "firebase-admin/firestore";
 
 const EMPTY_SOAP =
