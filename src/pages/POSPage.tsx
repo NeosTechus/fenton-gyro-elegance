@@ -39,6 +39,7 @@ import {
 import { computeTotals } from "@/lib/pricing";
 import { ValorEPI, getEPIs } from "@/lib/valor-epi";
 import { createOrder, subscribeToOrders, markOrderPaid, updateOrderStatus, saveOrderValorRefs, queueReceiptPrint } from "@/lib/orders";
+import { directPrintOrder, getPrinterIp, setPrinterIp } from "@/lib/print-direct";
 import { Order, OrderStatus } from "@/data/orders";
 import { DollarSign, ChevronDown, BarChart3, Printer } from "lucide-react";
 
@@ -123,6 +124,10 @@ const POSPage = () => {
     localStorage.setItem("pos-quick-items", JSON.stringify(quickItemIds));
   }, [quickItemIds]);
   const [showQuickPicker, setShowQuickPicker] = useState(false);
+  const [showPrinterConfig, setShowPrinterConfig] = useState(false);
+  const [printerIpInput, setPrinterIpInput] = useState(() => getPrinterIp());
+  const [printerTestState, setPrinterTestState] = useState<"idle" | "testing" | "ok" | "fail">("idle");
+  const [printerTestMsg, setPrinterTestMsg] = useState<string>("");
   const [quickItemPendingRemoval, setQuickItemPendingRemoval] = useState<MenuItem | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string>(QUICK_CAT);
   const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null);
@@ -169,11 +174,28 @@ const POSPage = () => {
   };
 
   const handlePrintReceipt = async (orderId: string, silent = false) => {
+    // Try the LAN printer first — instant, no cloud round-trip.
+    // Fall back to the Firestore queue so the order is still recorded for
+    // the cloud poller if/when it works.
     try {
-      await queueReceiptPrint(orderId);
-      if (!silent) toast.success("Receipt sent to printer", { duration: 1800 });
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to queue receipt");
+      await directPrintOrder(orderId);
+      if (!silent) toast.success("Receipt printed", { duration: 1800 });
+      // Also mark queued so the cloud path doesn't try to print it again.
+      queueReceiptPrint(orderId).catch(() => {});
+      return;
+    } catch (lanErr) {
+      // LAN print failed — queue for cloud as a fallback
+      try {
+        await queueReceiptPrint(orderId);
+        if (!silent) {
+          toast.success("Printer not reachable on LAN — queued for cloud printer", { duration: 2200 });
+        }
+      } catch (queueErr) {
+        toast.error(
+          `Print failed: ${lanErr instanceof Error ? lanErr.message : "LAN error"}`,
+          { duration: 3000 }
+        );
+      }
     }
   };
 
@@ -585,6 +607,17 @@ const POSPage = () => {
             <Hash className="w-3 h-3" />
             Order #{orderNumber}
           </span>
+          <button
+            onClick={() => {
+              setPrinterIpInput(getPrinterIp());
+              setPrinterTestState("idle");
+              setShowPrinterConfig(true);
+            }}
+            title="Printer settings"
+            className="flex items-center justify-center w-7 h-7 bg-primary-foreground/10 text-primary-foreground/70 hover:text-primary-foreground rounded-sm transition-all"
+          >
+            <Printer className="w-3.5 h-3.5" />
+          </button>
           {/* Terminal selector */}
           {epis.length > 0 && (
             <select
@@ -1860,6 +1893,122 @@ const POSPage = () => {
               >
                 Remove
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Printer IP config */}
+      {showPrinterConfig && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4"
+          onClick={() => setShowPrinterConfig(false)}
+        >
+          <div
+            className="bg-background border border-border rounded-md shadow-2xl w-full max-w-sm overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+              <h2 className="font-sans font-bold text-base flex items-center gap-2">
+                <Printer className="w-4 h-4 text-accent" />
+                Printer settings
+              </h2>
+              <button
+                onClick={() => setShowPrinterConfig(false)}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-4 space-y-3">
+              <label className="block">
+                <span className="text-xs font-sans font-semibold uppercase tracking-wider text-muted-foreground">
+                  Receipt printer IP (LAN)
+                </span>
+                <input
+                  type="text"
+                  value={printerIpInput}
+                  onChange={(e) => {
+                    setPrinterIpInput(e.target.value.trim());
+                    setPrinterTestState("idle");
+                  }}
+                  placeholder="192.168.1.203"
+                  className="mt-1 w-full px-3 py-2 bg-muted border border-border rounded-sm text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent/50"
+                />
+              </label>
+              <p className="text-[11px] text-muted-foreground leading-snug">
+                The Epson TM-m30III's IP on your store Wi-Fi. Find it via the printer's panel → Network Status Sheet, or your router's DHCP list. Receipts print over the LAN — no cloud trip required.
+              </p>
+
+              {printerTestState !== "idle" && (
+                <div
+                  className={`text-xs px-3 py-2 rounded-sm border ${
+                    printerTestState === "ok"
+                      ? "bg-emerald-50 border-emerald-200 text-emerald-800"
+                      : printerTestState === "fail"
+                        ? "bg-destructive/10 border-destructive/30 text-destructive"
+                        : "bg-muted border-border text-muted-foreground"
+                  }`}
+                >
+                  {printerTestMsg}
+                </div>
+              )}
+
+              <div className="flex items-center gap-2 pt-1">
+                <button
+                  disabled={!printerIpInput || printerTestState === "testing"}
+                  onClick={async () => {
+                    setPrinterTestState("testing");
+                    setPrinterTestMsg("Sending a small test page to the printer…");
+                    const xml =
+                      `<?xml version="1.0" encoding="utf-8"?>` +
+                      `<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">` +
+                      `<s:Body>` +
+                      `<epos-print xmlns="http://www.epson-pos.com/schemas/2011/03/epos-print">` +
+                      `<text align="center"/><text width="2" height="2">TEST PRINT&#10;</text>` +
+                      `<text width="1" height="1">Fenton Gyro POS&#10;</text>` +
+                      `<feed line="2"/><cut type="feed"/>` +
+                      `</epos-print></s:Body></s:Envelope>`;
+                    try {
+                      const resp = await fetch(
+                        `http://${printerIpInput}/cgi-bin/epos/service.cgi?devid=local_printer&timeout=10000`,
+                        {
+                          method: "POST",
+                          headers: { "Content-Type": "text/xml; charset=utf-8", SOAPAction: '""' },
+                          body: xml,
+                        }
+                      );
+                      const text = await resp.text();
+                      if (!resp.ok || !text.includes('success="true"')) {
+                        throw new Error(`Printer returned ${resp.status}`);
+                      }
+                      setPrinterTestState("ok");
+                      setPrinterTestMsg("Printer reachable. Test page should be coming out now.");
+                    } catch (err) {
+                      setPrinterTestState("fail");
+                      setPrinterTestMsg(
+                        err instanceof Error
+                          ? `Couldn't reach printer: ${err.message}`
+                          : "Couldn't reach printer."
+                      );
+                    }
+                  }}
+                  className="px-3 py-2 border border-border bg-background text-foreground text-xs font-sans font-bold uppercase tracking-wider rounded-sm hover:bg-muted active:scale-95 disabled:opacity-50"
+                >
+                  Test print
+                </button>
+                <button
+                  disabled={!printerIpInput}
+                  onClick={() => {
+                    setPrinterIp(printerIpInput);
+                    toast.success(`Printer IP saved: ${printerIpInput}`, { duration: 1800 });
+                    setShowPrinterConfig(false);
+                  }}
+                  className="ml-auto px-4 py-2 bg-primary text-primary-foreground text-xs font-sans font-bold uppercase tracking-wider rounded-sm hover:opacity-90 active:scale-95 disabled:opacity-50"
+                >
+                  Save
+                </button>
+              </div>
             </div>
           </div>
         </div>
