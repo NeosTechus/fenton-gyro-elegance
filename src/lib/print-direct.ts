@@ -39,7 +39,11 @@ interface OrderForReceipt {
 }
 
 const STORE_NAME = "Fenton Gyro";
-const STORE_ADDRESS_LINES = ["Fenton, MO", "(636) 717-7700"];
+const STORE_ADDRESS_LINES = [
+  "657 Gravois Rd",
+  "Fenton, MO 63026",
+  "(636) 600-1333",
+];
 const TAX_RATE = 0.08238;
 const LINE_WIDTH = 42; // characters on TM-m30III at default font
 
