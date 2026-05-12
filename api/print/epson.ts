@@ -20,10 +20,10 @@ import { adminDb } from "../_lib/firebase-admin.js";
 import { buildReceiptXml } from "../_lib/receipt-xml.js";
 import { FieldValue } from "firebase-admin/firestore";
 
-// Empty PrintRequestInfo — printer treats no <PrintData> as "no job".
+// Empty SOAP envelope — printer treats this as "no job to print".
 const EMPTY_RESPONSE =
   `<?xml version="1.0" encoding="utf-8"?>` +
-  `<PrintRequestInfo></PrintRequestInfo>`;
+  `<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body/></s:Envelope>`;
 
 function stripQuotes(v: string | string[] | undefined): string | null {
   if (!v) return null;

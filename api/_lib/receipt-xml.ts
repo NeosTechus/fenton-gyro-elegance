@@ -125,24 +125,15 @@ export function buildReceiptXml(order: OrderForReceipt): string {
   body.push(`<feed line="3"/>`);
   body.push(`<cut type="feed"/>`);
 
-  // Server Direct Print expects PrintRequestInfo, NOT a SOAP envelope.
-  // The actual print payload (ePOS-Print XML) goes inside <PrintData> wrapped
-  // in CDATA so the printer's parser doesn't choke on nested XML.
+  // SOAP-wrapped ePOS-Print is what the printer's parser accepts (verified
+  // via direct POST to /cgi-bin/epos/service.cgi returning success="true").
   const eposPrint =
-    `<?xml version="1.0" encoding="utf-8"?>` +
     `<epos-print xmlns="http://www.epson-pos.com/schemas/2011/03/epos-print">${body.join("")}</epos-print>`;
 
   return (
     `<?xml version="1.0" encoding="utf-8"?>` +
-    `<PrintRequestInfo>` +
-    `<ePOSPrint>` +
-    `<Parameter>` +
-    `<devid>local_printer</devid>` +
-    `<timeout>10000</timeout>` +
-    `<printjobid>${escapeXml(order.id)}</printjobid>` +
-    `</Parameter>` +
-    `<PrintData><![CDATA[${eposPrint}]]></PrintData>` +
-    `</ePOSPrint>` +
-    `</PrintRequestInfo>`
+    `<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">` +
+    `<s:Body>${eposPrint}</s:Body>` +
+    `</s:Envelope>`
   );
 }
