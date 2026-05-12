@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>Fenton Gyro — Offline POS</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f5efe6; color: #1c1814; -webkit-text-size-adjust: 100%; }
+  body { display: flex; flex-direction: column; min-height: 100vh; }
+  header { background: #2a4030; color: #f5efe6; padding: 10px 14px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  header h1 { margin: 0; font-size: 18px; font-weight: 600; }
+  header .pill { padding: 4px 10px; border-radius: 4px; background: rgba(255,255,255,0.12); font-size: 12px; font-weight: 600; }
+  header .spacer { flex: 1; }
+  header button { background: rgba(255,255,255,0.12); color: #f5efe6; border: 0; padding: 6px 10px; border-radius: 4px; font-size: 12px; cursor: pointer; }
+  header button:hover { background: rgba(255,255,255,0.2); }
+
+  main { flex: 1; display: grid; grid-template-columns: 1fr 320px; gap: 0; min-height: 0; }
+  @media (max-width: 760px) { main { grid-template-columns: 1fr; grid-template-rows: 1fr auto; } #cart { max-height: 50vh; } }
+
+  #menu { padding: 8px; overflow-y: auto; }
+  .cat-tabs { display: flex; gap: 6px; overflow-x: auto; padding: 4px 0 10px; }
+  .cat-tabs button { white-space: nowrap; padding: 8px 14px; border: 2px solid transparent; border-radius: 4px; font-size: 13px; font-weight: 600; cursor: pointer; background: #eadfd0; color: #4b3f30; }
+  .cat-tabs button.active { background: #2a4030; color: #f5efe6; border-color: #2a4030; }
+  .items { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+  .item { background: #fff; border: 2px solid #ddd0bb; border-radius: 6px; padding: 10px; cursor: pointer; text-align: left; }
+  .item:active { transform: scale(0.97); }
+  .item h3 { margin: 0 0 4px; font-size: 14px; font-weight: 600; }
+  .item .p { font-size: 13px; font-weight: 700; color: #c4533f; }
+
+  #cart { background: #fff; border-left: 1px solid #ddd0bb; display: flex; flex-direction: column; min-height: 0; }
+  #cart .hd { padding: 12px 14px; border-bottom: 1px solid #ddd0bb; display: flex; align-items: center; }
+  #cart .hd h2 { margin: 0; font-size: 16px; }
+  #cart .hd .count { margin-left: auto; font-size: 12px; color: #6b5e4d; }
+  #cart .body { flex: 1; overflow-y: auto; padding: 8px 12px; min-height: 0; }
+  #cart .empty { color: #9a8a72; font-size: 14px; padding: 20px; text-align: center; }
+  .line { display: grid; grid-template-columns: 1fr auto; gap: 4px; padding: 8px 0; border-bottom: 1px dashed #eee; }
+  .line .name { font-size: 14px; font-weight: 600; }
+  .line .price { font-size: 14px; font-weight: 700; }
+  .line .qty { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+  .line .qty button { width: 28px; height: 28px; border-radius: 4px; border: 1px solid #ddd0bb; background: #fff; font-size: 16px; cursor: pointer; }
+  .line .qty span { min-width: 28px; text-align: center; font-weight: 600; }
+  #cart .ft { padding: 12px 14px; border-top: 1px solid #ddd0bb; }
+  #cart .ft .row { display: flex; justify-content: space-between; font-size: 13px; margin: 4px 0; }
+  #cart .ft .total { font-size: 18px; font-weight: 700; margin-top: 6px; padding-top: 6px; border-top: 1px solid #ddd0bb; }
+  #cart .opts { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 10px 0; }
+  #cart .opts button { padding: 8px; border: 2px solid #ddd0bb; border-radius: 4px; background: #fff; font-size: 13px; font-weight: 600; cursor: pointer; color: #4b3f30; }
+  #cart .opts button.on { background: #2a4030; color: #fff; border-color: #2a4030; }
+  #cart .pay { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 8px 0; }
+  #cart .pay button { padding: 8px; border: 2px solid #ddd0bb; border-radius: 4px; background: #fff; font-size: 13px; font-weight: 600; cursor: pointer; color: #4b3f30; }
+  #cart .pay button.on { background: #c4533f; color: #fff; border-color: #c4533f; }
+  #cart .checkout { width: 100%; padding: 14px; border: 0; border-radius: 4px; background: #2a4030; color: #f5efe6; font-size: 16px; font-weight: 700; cursor: pointer; margin-top: 8px; }
+  #cart .checkout:disabled { background: #ccc; cursor: not-allowed; }
+
+  #toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); padding: 12px 20px; border-radius: 6px; background: #1c1814; color: #f5efe6; font-size: 14px; z-index: 100; opacity: 0; transition: opacity 0.2s; pointer-events: none; max-width: 90vw; text-align: center; }
+  #toast.show { opacity: 1; }
+  #toast.error { background: #c4533f; }
+  #toast.ok { background: #2a4030; }
+
+  .modal { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 50; padding: 16px; }
+  .modal.show { display: flex; }
+  .modal .box { background: #fff; border-radius: 8px; padding: 16px; max-width: 360px; width: 100%; }
+  .modal h3 { margin: 0 0 8px; font-size: 16px; }
+  .modal .field { display: block; margin: 12px 0; }
+  .modal .field label { font-size: 12px; color: #6b5e4d; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+  .modal .field input { width: 100%; padding: 10px; border: 1px solid #ddd0bb; border-radius: 4px; font-family: monospace; font-size: 14px; margin-top: 4px; }
+  .modal .acts { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
+  .modal .acts button { padding: 8px 14px; border-radius: 4px; font-size: 13px; font-weight: 600; cursor: pointer; }
+  .modal .acts .cancel { background: #fff; border: 1px solid #ddd0bb; color: #4b3f30; }
+  .modal .acts .save { background: #2a4030; color: #fff; border: 0; }
+  .modal .acts .test { background: #fff; border: 1px solid #ddd0bb; color: #4b3f30; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Fenton Gyro</h1>
+  <span class="pill">OFFLINE POS</span>
+  <div class="spacer"></div>
+  <button onclick="openSettings()">⚙ Printer</button>
+  <button onclick="if (confirm('Clear cart?')) clearCart()">Clear</button>
+</header>
+
+<main>
+  <section id="menu">
+    <div class="cat-tabs" id="catTabs"></div>
+    <div class="items" id="items"></div>
+  </section>
+
+  <aside id="cart">
+    <div class="hd">
+      <h2>Cart</h2>
+      <span class="count" id="cartCount">0 items</span>
+    </div>
+    <div class="body" id="cartBody"></div>
+    <div class="ft">
+      <div class="opts">
+        <button id="otDinein" class="on" onclick="setOrderType('dine-in')">Dine-In</button>
+        <button id="otTakeout" onclick="setOrderType('take-out')">Take-Out</button>
+      </div>
+      <div class="pay">
+        <button id="payCash" class="on" onclick="setPayment('cash')">Cash</button>
+        <button id="payCard" onclick="setPayment('card')">Card</button>
+      </div>
+      <div class="row"><span>Subtotal</span><span id="subT">$0.00</span></div>
+      <div class="row"><span>Tax (8.238%)</span><span id="taxT">$0.00</span></div>
+      <div class="row total"><span>TOTAL</span><span id="totalT">$0.00</span></div>
+      <button class="checkout" id="checkoutBtn" onclick="checkout()" disabled>Print Receipt</button>
+    </div>
+  </aside>
+</main>
+
+<div id="settingsModal" class="modal" onclick="if (event.target === this) closeSettings()">
+  <div class="box">
+    <h3>🖨 Printer Settings</h3>
+    <div class="field">
+      <label>Receipt printer IP (LAN)</label>
+      <input type="text" id="printerIpInput" placeholder="192.168.1.203" />
+    </div>
+    <p style="font-size: 11px; color: #6b5e4d; margin: 8px 0;">The Epson printer's IP on this Wi-Fi. The printer's panel can print a Network Status Sheet showing its IP.</p>
+    <div id="testResult" style="font-size: 12px; padding: 8px; border-radius: 4px; margin: 8px 0; display: none;"></div>
+    <div class="acts">
+      <button class="test" onclick="testPrint()">Test Print</button>
+      <button class="cancel" onclick="closeSettings()">Cancel</button>
+      <button class="save" onclick="saveSettings()">Save</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ── Menu data ────────────────────────────────────────────────────────
+const MENU = [
+  // Gyros
+  { cat: "Gyros", name: "Chicken Gyro", price: 10.99 },
+  { cat: "Gyros", name: "Traditional Gyro", price: 10.99 },
+  { cat: "Gyros", name: "Doner Gyro", price: 12.99 },
+  { cat: "Gyros", name: "Falafel Gyro", price: 10.99 },
+  { cat: "Gyros", name: "Greek Sub/Gyro", price: 10.99 },
+  { cat: "Gyros", name: "Chicken Gyro Sub", price: 10.99 },
+  { cat: "Gyros", name: "Burrito Gyro", price: 10.99 },
+  { cat: "Gyros", name: "Philly Gyro", price: 10.99 },
+  { cat: "Gyros", name: "Al Gyro", price: 10.99 },
+  { cat: "Gyros", name: "Loaded Gyro Fries", price: 12.99 },
+  { cat: "Gyros", name: "Famous Gyro Pizza", price: 8.99 },
+  { cat: "Gyros", name: "Pita Pizza (Cheese)", price: 4.99 },
+
+  // Bowls
+  { cat: "Bowls", name: "Gyro Bowl", price: 11.99 },
+  { cat: "Bowls", name: "Chicken Bowl", price: 11.99 },
+  { cat: "Bowls", name: "Falafel Bowl", price: 11.99 },
+  { cat: "Bowls", name: "Buttered Chicken", price: 10.99 },
+
+  // Salads
+  { cat: "Salads", name: "Gyro Salad", price: 12.99 },
+  { cat: "Salads", name: "Mediterranean Salad", price: 9.99 },
+  { cat: "Salads", name: "Falafel Salad", price: 10.99 },
+
+  // Appetizers
+  { cat: "Appetizers", name: "Hummus Plate", price: 6.99 },
+  { cat: "Appetizers", name: "Tzatziki Dip", price: 6.99 },
+  { cat: "Appetizers", name: "Spinach Pie", price: 7.99 },
+  { cat: "Appetizers", name: "Falafel Appetizer", price: 6.99 },
+  { cat: "Appetizers", name: "Stuffed Grape Leaves", price: 7.99 },
+  { cat: "Appetizers", name: "Beef Rice Balls", price: 7.99 },
+
+  // Sides
+  { cat: "Sides", name: "French Fries", price: 3.99 },
+  { cat: "Sides", name: "Cheese Fries", price: 4.99 },
+  { cat: "Sides", name: "Greek Fries", price: 5.99 },
+  { cat: "Sides", name: "Pita Bread", price: 1.79 },
+  { cat: "Sides", name: "Rice", price: 2.99 },
+
+  // Drinks
+  { cat: "Drinks", name: "Fountain Drink", price: 1.99 },
+  { cat: "Drinks", name: "Bottled Soda", price: 2.99 },
+  { cat: "Drinks", name: "Bottle Water", price: 1.99 },
+  { cat: "Drinks", name: "Ginger Beer", price: 3.49 },
+  { cat: "Drinks", name: "Add On 1", price: 1.00 },
+  { cat: "Drinks", name: "Add On 2", price: 0.89 },
+
+  // Desserts
+  { cat: "Desserts", name: "Baklava", price: 3.99 },
+  { cat: "Desserts", name: "Rice Pudding", price: 3.99 },
+  { cat: "Desserts", name: "Kunafa", price: 5.99 },
+  { cat: "Desserts", name: "Tiramisu", price: 5.99 },
+];
+
+const CATS = [...new Set(MENU.map(m => m.cat))];
+const TAX_RATE = 0.08238;
+const LINE_WIDTH = 42;
+
+// ── State ────────────────────────────────────────────────────────────
+let state = {
+  selectedCat: CATS[0],
+  cart: {}, // name -> { item, qty }
+  orderType: "dine-in",
+  payment: "cash",
+  printerIp: localStorage.getItem("offline-pos-printer-ip") || "192.168.1.203",
+};
+
+// ── Rendering ────────────────────────────────────────────────────────
+function renderCats() {
+  const el = document.getElementById("catTabs");
+  el.innerHTML = "";
+  for (const cat of CATS) {
+    const btn = document.createElement("button");
+    btn.textContent = cat;
+    if (cat === state.selectedCat) btn.classList.add("active");
+    btn.onclick = () => { state.selectedCat = cat; renderCats(); renderItems(); };
+    el.appendChild(btn);
+  }
+}
+
+function renderItems() {
+  const el = document.getElementById("items");
+  el.innerHTML = "";
+  for (const m of MENU.filter(m => m.cat === state.selectedCat)) {
+    const div = document.createElement("div");
+    div.className = "item";
+    div.onclick = () => addToCart(m);
+    div.innerHTML = `<h3>${escapeHtml(m.name)}</h3><div class="p">$${m.price.toFixed(2)}</div>`;
+    el.appendChild(div);
+  }
+}
+
+function renderCart() {
+  const body = document.getElementById("cartBody");
+  const items = Object.values(state.cart);
+  if (items.length === 0) {
+    body.innerHTML = `<div class="empty">Tap items to add</div>`;
+  } else {
+    body.innerHTML = items.map((c, i) => `
+      <div class="line">
+        <div class="name">${escapeHtml(c.item.name)}</div>
+        <div class="price">$${(c.item.price * c.qty).toFixed(2)}</div>
+        <div class="qty">
+          <button onclick="changeQty(${i}, -1)">−</button>
+          <span>${c.qty}</span>
+          <button onclick="changeQty(${i}, 1)">+</button>
+          <button onclick="removeItem(${i})" style="margin-left:auto;color:#c4533f">×</button>
+        </div>
+      </div>
+    `).join("");
+  }
+  const count = items.reduce((s, c) => s + c.qty, 0);
+  document.getElementById("cartCount").textContent = count + " item" + (count !== 1 ? "s" : "");
+  const subtotal = items.reduce((s, c) => s + c.item.price * c.qty, 0);
+  const tax = +(subtotal * TAX_RATE).toFixed(2);
+  const total = subtotal + tax;
+  document.getElementById("subT").textContent = "$" + subtotal.toFixed(2);
+  document.getElementById("taxT").textContent = "$" + tax.toFixed(2);
+  document.getElementById("totalT").textContent = "$" + total.toFixed(2);
+  document.getElementById("checkoutBtn").disabled = items.length === 0;
+}
+
+// ── Cart actions ─────────────────────────────────────────────────────
+function addToCart(item) {
+  if (state.cart[item.name]) state.cart[item.name].qty++;
+  else state.cart[item.name] = { item, qty: 1 };
+  renderCart();
+}
+function changeQty(i, delta) {
+  const arr = Object.values(state.cart);
+  const c = arr[i];
+  c.qty += delta;
+  if (c.qty <= 0) delete state.cart[c.item.name];
+  renderCart();
+}
+function removeItem(i) {
+  const arr = Object.values(state.cart);
+  delete state.cart[arr[i].item.name];
+  renderCart();
+}
+function clearCart() {
+  state.cart = {};
+  renderCart();
+}
+function setOrderType(t) {
+  state.orderType = t;
+  document.getElementById("otDinein").classList.toggle("on", t === "dine-in");
+  document.getElementById("otTakeout").classList.toggle("on", t === "take-out");
+}
+function setPayment(p) {
+  state.payment = p;
+  document.getElementById("payCash").classList.toggle("on", p === "cash");
+  document.getElementById("payCard").classList.toggle("on", p === "card");
+}
+
+// ── Checkout & print ─────────────────────────────────────────────────
+async function checkout() {
+  const items = Object.values(state.cart);
+  if (items.length === 0) return;
+  const subtotal = items.reduce((s, c) => s + c.item.price * c.qty, 0);
+  const tax = +(subtotal * TAX_RATE).toFixed(2);
+  const total = subtotal + tax;
+
+  const orderId = "OFFLINE-" + Date.now().toString(36).toUpperCase();
+  const order = {
+    id: orderId,
+    items: items.map(c => ({ name: c.item.name, quantity: c.qty, price: c.item.price })),
+    subtotal, tax, total,
+    order_type: state.orderType,
+    payment: state.payment,
+    created_at: new Date(),
+  };
+
+  const xml = buildReceiptSoapXml(order);
+  const btn = document.getElementById("checkoutBtn");
+  btn.disabled = true;
+  btn.textContent = "Printing…";
+
+  try {
+    await postPrintToLan(xml);
+    toast(`✓ Printed Order ${orderId.slice(-4)} — $${total.toFixed(2)}`, "ok");
+    clearCart();
+  } catch (e) {
+    toast("Print failed: " + (e.message || "Unknown error"), "error");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Print Receipt";
+  }
+}
+
+async function postPrintToLan(xml) {
+  const url = `http://${state.printerIp}/cgi-bin/epos/service.cgi?devid=local_printer&timeout=10000`;
+  const resp = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "text/xml; charset=utf-8", "SOAPAction": '""' },
+    body: xml,
+  });
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  const text = await resp.text();
+  if (!text.includes('success="true"')) throw new Error("Printer rejected: " + text.slice(0, 100));
+}
+
+function buildReceiptSoapXml(order) {
+  const tag = order.id.slice(-4);
+  const date = order.created_at.toLocaleString("en-US", { timeZone: "America/Chicago" });
+  const body = [];
+  body.push(`<text align="center"/>`);
+  body.push(`<text width="2" height="2"/>`);
+  body.push(`<text>Fenton Gyro&#10;</text>`);
+  body.push(`<text width="1" height="1"/>`);
+  body.push(`<text>657 Gravois Rd&#10;</text>`);
+  body.push(`<text>Fenton, MO 63026&#10;</text>`);
+  body.push(`<text>(636) 600-1333&#10;</text>`);
+  body.push(`<feed line="1"/>`);
+  body.push(`<text>${escapeXml(date)}&#10;</text>`);
+  body.push(`<text>Order #${escapeXml(tag)}&#10;</text>`);
+  body.push(`<text>${escapeXml(order.order_type.toUpperCase())}&#10;</text>`);
+  body.push(`<text align="left"/>`);
+  body.push(`<text>${"-".repeat(LINE_WIDTH)}&#10;</text>`);
+  for (const it of order.items) {
+    body.push(`<text>${escapeXml(lineItem(it.quantity, it.name, it.price * it.quantity))}&#10;</text>`);
+  }
+  body.push(`<text>${"-".repeat(LINE_WIDTH)}&#10;</text>`);
+  body.push(`<text>${escapeXml(totalsLine("Subtotal", order.subtotal))}&#10;</text>`);
+  body.push(`<text>${escapeXml(totalsLine("Tax", order.tax))}&#10;</text>`);
+  body.push(`<text width="1" height="2"/>`);
+  body.push(`<text>${escapeXml(totalsLine("TOTAL", order.total))}&#10;</text>`);
+  body.push(`<text width="1" height="1"/>`);
+  body.push(`<feed line="1"/>`);
+  body.push(`<text>Paid: ${order.payment.toUpperCase()}&#10;</text>`);
+  body.push(`<feed line="2"/>`);
+  body.push(`<text align="center"/>`);
+  body.push(`<text>Thank you!&#10;</text>`);
+  body.push(`<text>fentongyro.com&#10;</text>`);
+  body.push(`<feed line="3"/>`);
+  body.push(`<cut type="feed"/>`);
+
+  const eposPrint = `<epos-print xmlns="http://www.epson-pos.com/schemas/2011/03/epos-print">${body.join("")}</epos-print>`;
+  return `<?xml version="1.0" encoding="utf-8"?><s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body>${eposPrint}</s:Body></s:Envelope>`;
+}
+
+function pad(s, width, align) {
+  if (s.length >= width) return s.slice(0, width);
+  const fill = " ".repeat(width - s.length);
+  return align === "right" ? fill + s : s + fill;
+}
+function lineItem(qty, name, price) {
+  const left = `${qty} x ${name}`;
+  const right = `$${price.toFixed(2)}`;
+  return pad(left, LINE_WIDTH - right.length, "left") + right;
+}
+function totalsLine(label, value) {
+  const right = `$${value.toFixed(2)}`;
+  return pad(label, LINE_WIDTH - right.length, "left") + right;
+}
+function escapeXml(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+}
+function escapeHtml(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+// ── Settings & test print ────────────────────────────────────────────
+function openSettings() {
+  document.getElementById("printerIpInput").value = state.printerIp;
+  document.getElementById("testResult").style.display = "none";
+  document.getElementById("settingsModal").classList.add("show");
+}
+function closeSettings() {
+  document.getElementById("settingsModal").classList.remove("show");
+}
+function saveSettings() {
+  const ip = document.getElementById("printerIpInput").value.trim();
+  if (!ip) return;
+  state.printerIp = ip;
+  localStorage.setItem("offline-pos-printer-ip", ip);
+  closeSettings();
+  toast(`Printer IP saved: ${ip}`, "ok");
+}
+async function testPrint() {
+  const ip = document.getElementById("printerIpInput").value.trim();
+  if (!ip) return;
+  const tr = document.getElementById("testResult");
+  tr.style.background = "#eee";
+  tr.style.color = "#333";
+  tr.style.display = "block";
+  tr.textContent = "Sending test print…";
+  const xml = `<?xml version="1.0" encoding="utf-8"?><s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body><epos-print xmlns="http://www.epson-pos.com/schemas/2011/03/epos-print"><text align="center"/><text width="2" height="2">TEST PRINT&#10;</text><text width="1" height="1">Offline POS&#10;</text><feed line="2"/><cut type="feed"/></epos-print></s:Body></s:Envelope>`;
+  try {
+    const resp = await fetch(`http://${ip}/cgi-bin/epos/service.cgi?devid=local_printer&timeout=10000`, {
+      method: "POST",
+      headers: { "Content-Type": "text/xml; charset=utf-8", "SOAPAction": '""' },
+      body: xml,
+    });
+    const text = await resp.text();
+    if (!resp.ok || !text.includes('success="true"')) throw new Error(`HTTP ${resp.status}`);
+    tr.style.background = "#dfead0"; tr.style.color = "#2a4030";
+    tr.textContent = "✓ Printer reachable. Test page coming out now.";
+  } catch (e) {
+    tr.style.background = "#f9dada"; tr.style.color = "#c4533f";
+    tr.textContent = "✗ Couldn't reach printer: " + (e.message || "unknown error");
+  }
+}
+
+// ── Toast ────────────────────────────────────────────────────────────
+let toastTimer;
+function toast(msg, kind) {
+  const t = document.getElementById("toast");
+  t.className = "show " + (kind || "");
+  t.textContent = msg;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove("show"), 2200);
+}
+
+// ── Init ─────────────────────────────────────────────────────────────
+renderCats();
+renderItems();
+renderCart();
+setOrderType("dine-in");
+setPayment("cash");
+</script>
+</body>
+</html>
