@@ -20,9 +20,10 @@ import { adminDb } from "../_lib/firebase-admin.js";
 import { buildReceiptXml } from "../_lib/receipt-xml.js";
 import { FieldValue } from "firebase-admin/firestore";
 
-const EMPTY_SOAP =
+// Empty PrintRequestInfo — printer treats no <PrintData> as "no job".
+const EMPTY_RESPONSE =
   `<?xml version="1.0" encoding="utf-8"?>` +
-  `<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body/></s:Envelope>`;
+  `<PrintRequestInfo></PrintRequestInfo>`;
 
 function stripQuotes(v: string | string[] | undefined): string | null {
   if (!v) return null;
@@ -55,7 +56,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     } catch (e) {
       console.error("ack update failed", ifMatch, e);
     }
-    res.status(200).send(EMPTY_SOAP);
+    res.status(200).send(EMPTY_RESPONSE);
     return;
   }
 
@@ -76,7 +77,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       // Skip them by not querying without the field check above. (Firestore
       // returns docs where the field is exactly null; missing field is not
       // matched. Backfill via a one-time script if needed.)
-      res.status(200).send(EMPTY_SOAP);
+      res.status(200).send(EMPTY_RESPONSE);
       return;
     }
 
@@ -102,6 +103,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.status(200).send(xml);
   } catch (e) {
     console.error("poll failed", e);
-    res.status(200).send(EMPTY_SOAP);
+    res.status(200).send(EMPTY_RESPONSE);
   }
 }
