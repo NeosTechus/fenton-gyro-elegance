@@ -167,7 +167,8 @@ const OnlineOrder = () => {
         };
       });
 
-      // Save order to Firestore first
+      // Save order to Firestore first. Mark unpaid so the kitchen does NOT
+      // see it until Valor confirms payment on the /track redirect.
       const orderId = await createOrder({
         customer_name: formData.name,
         customer_email: formData.email,
@@ -178,6 +179,7 @@ const OnlineOrder = () => {
         notes: formData.notes,
         source: "web",
         payment: "card",
+        payment_status: "unpaid",
       });
 
       const checkoutUrl = await createValorCheckout({

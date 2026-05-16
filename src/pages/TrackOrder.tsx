@@ -3,7 +3,7 @@ import { useParams, useSearchParams, Link } from "react-router-dom";
 import { doc, onSnapshot, Timestamp } from "firebase/firestore";
 import { db, isFirebaseConfigured } from "@/lib/firebase";
 import { Order, OrderStatus } from "@/data/orders";
-import { updateOrderStatus, saveOrderValorRefs } from "@/lib/orders";
+import { updateOrderStatus, saveOrderValorRefs, markOrderPaid } from "@/lib/orders";
 import { toast } from "sonner";
 import {
   ArrowLeft,
@@ -48,8 +48,9 @@ const TrackOrder = () => {
   const valorRefsSavedRef = useRef(false);
 
   // On first load after Valor ePage redirect, Valor may append rrn / auth_code
-  // / card_last4 as query params. Persist them to the order doc so we can
-  // void the payment if the customer cancels. Runs once per mount.
+  // / card_last4 as query params. Their presence means Valor approved the
+  // payment, so flip the order to paid (kitchen only sees paid orders) and
+  // persist the refs so we can void if the customer cancels.
   useEffect(() => {
     if (!orderId || valorRefsSavedRef.current) return;
     const rrn = searchParams.get("rrn") || undefined;
@@ -61,6 +62,9 @@ const TrackOrder = () => {
     valorRefsSavedRef.current = true;
     saveOrderValorRefs(orderId, { rrn, auth_code, masked_pan }).catch((err) =>
       console.error("Failed to save Valor refs:", err),
+    );
+    markOrderPaid(orderId).catch((err) =>
+      console.error("Failed to mark order paid:", err),
     );
     // Strip the sensitive params from the URL so they aren't shared/bookmarked
     const next = new URLSearchParams(searchParams);
