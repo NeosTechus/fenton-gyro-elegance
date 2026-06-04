@@ -61,6 +61,7 @@ const CartDrawer = ({ open, onClose }: { open: boolean; onClose: () => void }) =
         notes: formData.notes,
         source: "web",
         payment: "card",
+        payment_status: "unpaid",
       });
 
       const checkoutUrl = await createValorCheckout({
