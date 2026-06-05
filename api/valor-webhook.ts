@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
+import { timingSafeEqual } from "node:crypto";
 import { adminDb } from "./_lib/firebase-admin.js";
 import { FieldValue } from "firebase-admin/firestore";
 
@@ -13,9 +14,21 @@ import { FieldValue } from "firebase-admin/firestore";
  * UI updates. Firestore writes for payment_status happen here.
  */
 
-// Simple shared secret for webhook verification
-// Set WEBHOOK_SECRET in Vercel env vars
+// Shared secret for webhook verification — REQUIRED. If WEBHOOK_SECRET is not
+// set in Vercel env, every request is rejected. The webhook is the only
+// untrusted-internet entry point that can flip orders to paid; allowing
+// unauthenticated POSTs would let anyone mint a free meal by sending a forged
+// payload with a known orderId.
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET;
+
+// Constant-time comparison so a colocated attacker can't measure the response
+// latency to recover the secret one byte at a time.
+function secretsMatch(provided: string, expected: string): boolean {
+  const a = Buffer.from(provided);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
 
 // Strip "-NNNNNN" 6-digit timestamp suffix that create-valor-checkout.ts
 // appends to invoice_no to make each Valor session unique on retry. The real
@@ -46,13 +59,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  // Verify webhook authenticity if secret is configured
-  if (WEBHOOK_SECRET) {
-    const providedSecret = req.headers["x-webhook-secret"];
-    if (providedSecret !== WEBHOOK_SECRET) {
-      console.warn("Webhook rejected — invalid secret");
-      return res.status(401).json({ error: "Unauthorized" });
-    }
+  // Verify webhook authenticity. The secret is REQUIRED — if it isn't set,
+  // refuse all traffic rather than silently let anyone POST a "payment".
+  if (!WEBHOOK_SECRET) {
+    console.error("[valor-webhook] refused: WEBHOOK_SECRET env var not set");
+    return res.status(503).json({ error: "Webhook not configured" });
+  }
+  const providedHeader = req.headers["x-webhook-secret"];
+  const providedSecret = Array.isArray(providedHeader) ? providedHeader[0] : providedHeader;
+  if (typeof providedSecret !== "string" || !secretsMatch(providedSecret, WEBHOOK_SECRET)) {
+    console.warn("[valor-webhook] rejected — invalid or missing secret");
+    return res.status(401).json({ error: "Unauthorized" });
   }
 
   try {
