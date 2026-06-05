@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useSearchParams, Link } from "react-router-dom";
 import { doc, onSnapshot, Timestamp } from "firebase/firestore";
 import { db, isFirebaseConfigured } from "@/lib/firebase";
@@ -46,21 +46,34 @@ const TrackOrder = () => {
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
 
-  // On first load after Valor ePage redirect, Valor may append rrn / auth_code
-  // / card_last4 as query params. We do NOT trust these to flip the order to
-  // paid — that would let anyone forge payment by visiting
-  // /track/<id>?auth_code=DEADBEEF. The Valor webhook is the source of truth
-  // for both marking the order paid and persisting Valor refs. Here we only
-  // strip the sensitive params from the URL so they aren't bookmarked/shared.
+  // On first load after Valor ePage redirect, Valor appends rrn / auth_code /
+  // card_last4 as query params. We do NOT trust these to flip the order paid
+  // directly — that would let anyone forge payment by visiting
+  // /track/<id>?auth_code=DEADBEEF. Instead we hit /api/valor-confirm-payment,
+  // which independently queries Valor's transaction status before flipping.
+  //
+  // The Valor webhook (when registered in Valor's portal) marks orders paid
+  // via a separate path; both share the same idempotency check so a race is
+  // harmless. Sensitive params are stripped from the URL after submit so they
+  // aren't bookmarked/shared.
+  const confirmedRef = useRef(false);
   useEffect(() => {
-    if (!orderId) return;
-    const hasSensitiveParam =
-      searchParams.has("rrn") ||
-      searchParams.has("auth_code") ||
-      searchParams.has("authCode") ||
-      searchParams.has("card_last4") ||
-      searchParams.has("masked_pan");
-    if (!hasSensitiveParam) return;
+    if (!orderId || confirmedRef.current) return;
+    const rrn = searchParams.get("rrn") || undefined;
+    const authCode =
+      searchParams.get("auth_code") || searchParams.get("authCode") || undefined;
+    const maskedPan =
+      searchParams.get("card_last4") || searchParams.get("masked_pan") || undefined;
+    if (!rrn && !authCode && !maskedPan) return;
+
+    confirmedRef.current = true;
+
+    fetch("/api/valor-confirm-payment", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ orderId, rrn, auth_code: authCode }),
+    }).catch((err) => console.error("valor-confirm-payment failed", err));
+
     const next = new URLSearchParams(searchParams);
     ["rrn", "auth_code", "authCode", "card_last4", "masked_pan"].forEach((k) =>
       next.delete(k),
