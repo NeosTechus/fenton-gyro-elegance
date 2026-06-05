@@ -1,5 +1,24 @@
 rules_version = '2';
 
+// ──────────────────────────────────────────────────────────────────────────────
+// Security model:
+//   - Public web customers are UNAUTHENTICATED. They may create only `source:'web'`
+//     orders, forced to `payment_status:'unpaid'` and `status:'pending'`, payment
+//     `card` only. The Valor webhook (Admin SDK, bypasses rules) later flips
+//     payment_status to 'paid' — clients can NEVER set or change payment_status.
+//   - POS/Kiosk are AUTHENTICATED staff devices (see src/context/AuthContext.tsx).
+//     They may create `source:'pos'|'kiosk'` orders with either paid/unpaid state.
+//   - Unauthenticated customers can cancel their OWN order — but ONLY while
+//     status is still 'pending' (chef hasn't accepted) and ONLY the status
+//     field can change. This powers the 15s self-cancel button on /track.
+//   - Authenticated staff updates are whitelisted to operational + POS payment-
+//     capture fields. Monetary + identity fields (total, items, customer_*) are
+//     immutable from the client. Web payment_status flips happen via the Admin
+//     SDK (Valor webhook) which bypasses these rules; POS payment_status flips
+//     happen client-side AFTER the Valor terminal confirms synchronously.
+//   - `get` is public for customer order tracking; `list` is auth'd.
+// ──────────────────────────────────────────────────────────────────────────────
+
 service cloud.firestore {
   match /databases/{database}/documents {
 
@@ -16,18 +35,62 @@ service cloud.firestore {
       // Only authenticated users can list/query orders (kitchen, admin, POS)
       allow list: if request.auth != null;
 
-      // Anyone can create orders but must have required fields and valid data
-      allow create: if
-        request.resource.data.keys().hasAll(['customer_name', 'items', 'total', 'status', 'source']) &&
-        request.resource.data.total is number &&
-        request.resource.data.total >= 0 &&
-        request.resource.data.total <= 10000 &&
-        request.resource.data.items is list &&
-        request.resource.data.items.size() > 0 &&
-        request.resource.data.source in ['pos', 'kiosk', 'web'];
+      // ── Shared validation ─────────────────────────────────────────────
+      function baseOrderValid() {
+        return request.resource.data.keys().hasAll(['customer_name', 'items', 'total', 'status', 'source', 'payment', 'payment_status']) &&
+               request.resource.data.total is number &&
+               request.resource.data.total >= 0 &&
+               request.resource.data.total <= 10000 &&
+               request.resource.data.items is list &&
+               request.resource.data.items.size() > 0 &&
+               request.resource.data.items.size() <= 50;
+      }
 
-      // Only authenticated users can update order status
-      allow update: if request.auth != null;
+      // ── CREATE — unauthenticated web customers ────────────────────────
+      // Forces unpaid + pending + card so a hostile client cannot fabricate a
+      // paid order. The Valor webhook (Admin SDK) is the only path that can
+      // flip payment_status to 'paid'.
+      allow create: if request.auth == null &&
+                       baseOrderValid() &&
+                       request.resource.data.source == 'web' &&
+                       request.resource.data.payment_status == 'unpaid' &&
+                       request.resource.data.status == 'pending' &&
+                       request.resource.data.payment == 'card';
+
+      // ── CREATE — authenticated POS / Kiosk staff ──────────────────────
+      // Staff devices can mark orders paid or unpaid (e.g. cash-pay-at-counter
+      // flow) and use any operational starting status.
+      allow create: if request.auth != null &&
+                       baseOrderValid() &&
+                       request.resource.data.source in ['pos', 'kiosk'] &&
+                       request.resource.data.payment_status in ['paid', 'unpaid'] &&
+                       request.resource.data.payment in ['card', 'cash'];
+
+      // ── UPDATE — unauthenticated customer self-cancel ─────────────────
+      // The /track page lets a customer cancel within a 15s window WHILE the
+      // chef hasn't accepted yet. Allow ONLY the status field to flip
+      // pending → cancelled. Any other mutation is blocked.
+      allow update: if request.auth == null &&
+                       resource.data.status == 'pending' &&
+                       request.resource.data.status == 'cancelled' &&
+                       request.resource.data.diff(resource.data).affectedKeys()
+                         .hasOnly(['status']);
+
+      // ── UPDATE — authenticated staff ──────────────────────────────────
+      // Operational fields + the POS payment-capture fields (payment_status,
+      // rrn, auth_code, masked_pan). POS staff need these for cash/pay-at-
+      // counter and POS-terminal card sales, where the Valor terminal returns
+      // capture refs synchronously to the client. Monetary + identity fields
+      // (total, items, customer_*) are still immutable from clients.
+      //
+      // TODO: gate on a staff custom-claim once role claims are introduced;
+      // today "authed = staff" because customer-facing flows are unauth.
+      allow update: if request.auth != null &&
+                       request.resource.data.diff(resource.data).affectedKeys()
+                         .hasOnly([
+                           'status', 'prep_time', 'receipt_printed_at', 'notes',
+                           'payment_status', 'rrn', 'auth_code', 'masked_pan'
+                         ]);
 
       // No one can delete orders
       allow delete: if false;

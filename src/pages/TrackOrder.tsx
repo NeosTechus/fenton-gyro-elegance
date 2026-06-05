@@ -1,9 +1,9 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useParams, useSearchParams, Link } from "react-router-dom";
 import { doc, onSnapshot, Timestamp } from "firebase/firestore";
 import { db, isFirebaseConfigured } from "@/lib/firebase";
 import { Order, OrderStatus } from "@/data/orders";
-import { updateOrderStatus, saveOrderValorRefs, markOrderPaid } from "@/lib/orders";
+import { updateOrderStatus } from "@/lib/orders";
 import { toast } from "sonner";
 import {
   ArrowLeft,
@@ -45,28 +45,22 @@ const TrackOrder = () => {
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
-  const valorRefsSavedRef = useRef(false);
 
   // On first load after Valor ePage redirect, Valor may append rrn / auth_code
-  // / card_last4 as query params. Their presence means Valor approved the
-  // payment, so flip the order to paid (kitchen only sees paid orders) and
-  // persist the refs so we can void if the customer cancels.
+  // / card_last4 as query params. We do NOT trust these to flip the order to
+  // paid — that would let anyone forge payment by visiting
+  // /track/<id>?auth_code=DEADBEEF. The Valor webhook is the source of truth
+  // for both marking the order paid and persisting Valor refs. Here we only
+  // strip the sensitive params from the URL so they aren't bookmarked/shared.
   useEffect(() => {
-    if (!orderId || valorRefsSavedRef.current) return;
-    const rrn = searchParams.get("rrn") || undefined;
-    const auth_code =
-      searchParams.get("auth_code") || searchParams.get("authCode") || undefined;
-    const masked_pan =
-      searchParams.get("card_last4") || searchParams.get("masked_pan") || undefined;
-    if (!rrn && !auth_code && !masked_pan) return;
-    valorRefsSavedRef.current = true;
-    saveOrderValorRefs(orderId, { rrn, auth_code, masked_pan }).catch((err) =>
-      console.error("Failed to save Valor refs:", err),
-    );
-    markOrderPaid(orderId).catch((err) =>
-      console.error("Failed to mark order paid:", err),
-    );
-    // Strip the sensitive params from the URL so they aren't shared/bookmarked
+    if (!orderId) return;
+    const hasSensitiveParam =
+      searchParams.has("rrn") ||
+      searchParams.has("auth_code") ||
+      searchParams.has("authCode") ||
+      searchParams.has("card_last4") ||
+      searchParams.has("masked_pan");
+    if (!hasSensitiveParam) return;
     const next = new URLSearchParams(searchParams);
     ["rrn", "auth_code", "authCode", "card_last4", "masked_pan"].forEach((k) =>
       next.delete(k),
@@ -154,9 +148,26 @@ const TrackOrder = () => {
     if (!order || !orderId || cancelTimeLeft <= 0 || !canCancel) return;
     setCancelling(true);
     try {
-      // Try to void the Valor payment first. If we don't have an rrn yet,
-      // the server still attempts with invoice_no — some configs support it.
       const orderWithRefs = order as Order & { rrn?: string; auth_code?: string };
+
+      // If the order has no Valor refs yet, the customer hasn't actually been
+      // charged (payment never landed via webhook). Safe to cancel directly
+      // without attempting a void.
+      if (!orderWithRefs.rrn && !orderWithRefs.auth_code) {
+        try {
+          await updateOrderStatus(orderId, "cancelled");
+          toast.success("Order cancelled.");
+        } catch {
+          toast.error("Failed to cancel order. Please call (636) 600-1333.");
+        } finally {
+          setCancelling(false);
+        }
+        return;
+      }
+
+      // Payment was captured — must successfully void before flipping status,
+      // otherwise we'd tell the customer their refund is processing while the
+      // charge stays on their card.
       let voided = false;
       try {
         const res = await fetch("/api/valor-void", {
@@ -169,18 +180,32 @@ const TrackOrder = () => {
             amount: order.total.toFixed(2),
           }),
         });
-        voided = res.ok;
-        if (!res.ok) console.warn("Valor void failed:", await res.text().catch(() => ""));
+        let body: { ok?: boolean; message?: string; code?: string } | null = null;
+        try {
+          body = (await res.json()) as { ok?: boolean; message?: string; code?: string };
+        } catch {
+          body = null;
+        }
+        voided = res.ok && body?.ok === true;
+        if (!voided) {
+          console.warn("Valor void failed:", { status: res.status, body });
+        }
       } catch (err) {
         console.warn("Valor void network error:", err);
       }
 
+      if (!voided) {
+        // Do NOT cancel the order — the charge is still on the customer's
+        // card. Leave status untouched and surface a clear error.
+        toast.error(
+          "Couldn't void payment automatically. Please call (636) 600-1333 — your order is still active.",
+        );
+        setCancelling(false);
+        return;
+      }
+
       await updateOrderStatus(orderId, "cancelled");
-      toast.success(
-        voided
-          ? "Order cancelled. Your refund is on its way."
-          : "Order cancelled. Please call (636) 600-1333 to confirm your refund.",
-      );
+      toast.success("Order cancelled. Your refund is on its way.");
     } catch {
       toast.error("Failed to cancel order. Please call (636) 600-1333.");
     } finally {
