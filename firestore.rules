@@ -46,6 +46,29 @@ service cloud.firestore {
                request.resource.data.items.size() <= 50;
       }
 
+      // ── Status transition gating ──────────────────────────────────────
+      // Forbid regressing terminal/late statuses. If the status field did
+      // NOT change (e.g. only prep_time/notes/payment_status are being
+      // edited), this check passes through. Otherwise (from → to) must be
+      // in the allowed table:
+      //   pending   → received | preparing | ready | completed | cancelled
+      //   received  → preparing | ready | completed | cancelled
+      //   preparing → ready | completed | cancelled
+      //   ready     → completed | cancelled
+      //   completed → (terminal — no further transitions)
+      //   cancelled → (terminal — no further transitions)
+      function statusTransitionValid() {
+        return request.resource.data.status == resource.data.status ||
+               (resource.data.status == 'pending' &&
+                  request.resource.data.status in ['received', 'preparing', 'ready', 'completed', 'cancelled']) ||
+               (resource.data.status == 'received' &&
+                  request.resource.data.status in ['preparing', 'ready', 'completed', 'cancelled']) ||
+               (resource.data.status == 'preparing' &&
+                  request.resource.data.status in ['ready', 'completed', 'cancelled']) ||
+               (resource.data.status == 'ready' &&
+                  request.resource.data.status in ['completed', 'cancelled']);
+      }
+
       // ── CREATE — unauthenticated web customers ────────────────────────
       // Forces unpaid + pending + card so a hostile client cannot fabricate a
       // paid order. The Valor webhook (Admin SDK) is the only path that can
@@ -74,7 +97,8 @@ service cloud.firestore {
                        resource.data.status == 'pending' &&
                        request.resource.data.status == 'cancelled' &&
                        request.resource.data.diff(resource.data).affectedKeys()
-                         .hasOnly(['status']);
+                         .hasOnly(['status']) &&
+                       statusTransitionValid();
 
       // ── UPDATE — authenticated staff ──────────────────────────────────
       // Operational fields + the POS payment-capture fields (payment_status,
@@ -90,7 +114,8 @@ service cloud.firestore {
                          .hasOnly([
                            'status', 'prep_time', 'receipt_printed_at', 'notes',
                            'payment_status', 'rrn', 'auth_code', 'masked_pan'
-                         ]);
+                         ]) &&
+                       statusTransitionValid();
 
       // No one can delete orders
       allow delete: if false;
