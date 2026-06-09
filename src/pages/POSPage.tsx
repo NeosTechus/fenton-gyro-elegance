@@ -45,54 +45,9 @@ import { DollarSign, ChevronDown, BarChart3, Printer } from "lucide-react";
 
 type OrderType = "dine-in" | "take-out";
 
-// Category-tab color palette — keys are the category names; "default" is the fallback.
+// Neutral palette used for all category tabs and item tiles — no per-category colors.
 // Tailwind classes are kept as full literal strings so the JIT picks them up.
 const CATEGORY_COLORS: Record<string, { active: string; inactive: string; tile: string }> = {
-  "Quick Items": {
-    active: "bg-slate-700 text-white border-slate-700 shadow-sm",
-    inactive: "bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200",
-    tile: "bg-slate-200 border-slate-400 hover:border-slate-600",
-  },
-  Gyros: {
-    active: "bg-red-600 text-white border-red-600 shadow-sm",
-    inactive: "bg-red-50 text-red-700 border-red-200 hover:bg-red-100",
-    tile: "bg-red-200 border-red-400 hover:border-red-600",
-  },
-  Bowls: {
-    active: "bg-orange-600 text-white border-orange-600 shadow-sm",
-    inactive: "bg-orange-50 text-orange-700 border-orange-200 hover:bg-orange-100",
-    tile: "bg-orange-200 border-orange-400 hover:border-orange-600",
-  },
-  Salads: {
-    active: "bg-green-600 text-white border-green-600 shadow-sm",
-    inactive: "bg-green-50 text-green-700 border-green-200 hover:bg-green-100",
-    tile: "bg-green-200 border-green-400 hover:border-green-600",
-  },
-  Sides: {
-    active: "bg-amber-600 text-white border-amber-600 shadow-sm",
-    inactive: "bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100",
-    tile: "bg-amber-200 border-amber-400 hover:border-amber-600",
-  },
-  Appetizers: {
-    active: "bg-purple-600 text-white border-purple-600 shadow-sm",
-    inactive: "bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100",
-    tile: "bg-purple-200 border-purple-400 hover:border-purple-600",
-  },
-  Drinks: {
-    active: "bg-blue-600 text-white border-blue-600 shadow-sm",
-    inactive: "bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100",
-    tile: "bg-blue-200 border-blue-400 hover:border-blue-600",
-  },
-  Desserts: {
-    active: "bg-pink-600 text-white border-pink-600 shadow-sm",
-    inactive: "bg-pink-50 text-pink-700 border-pink-200 hover:bg-pink-100",
-    tile: "bg-pink-200 border-pink-400 hover:border-pink-600",
-  },
-  Kids: {
-    active: "bg-yellow-500 text-white border-yellow-500 shadow-sm",
-    inactive: "bg-yellow-50 text-yellow-800 border-yellow-200 hover:bg-yellow-100",
-    tile: "bg-yellow-200 border-yellow-400 hover:border-yellow-600",
-  },
   default: {
     active: "bg-primary text-primary-foreground border-primary shadow-sm",
     inactive: "bg-muted text-muted-foreground border-border hover:bg-muted/80",
