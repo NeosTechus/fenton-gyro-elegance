@@ -123,6 +123,7 @@ const POSPage = () => {
   const checkoutLockRef = useRef(false);
   const blockedCardRetryRef = useRef(false);
   const pendingOrderIdRef = useRef<string | null>(null);
+  const cartEndRef = useRef<HTMLDivElement>(null);
   const [paymentRecovery, setPaymentRecovery] = useState<{ reqTxnId: string; orderId?: string } | null>(null);
   const [unpaidRecovery, setUnpaidRecovery] = useState<{ orderId: string; tag: string; total: number; reqTxnId: string } | null>(null);
   const [unpaidInFlight, setUnpaidInFlight] = useState<{ orderId: string; txnId: string | null } | null>(null);
@@ -195,7 +196,10 @@ const POSPage = () => {
       }
       return [...prev, { item, qty, selectedModifiers: mods, modifiersTotal: modTotal }];
     });
-    // silent add — no toast to avoid obstructing POS buttons
+    // Auto-scroll cart to bottom after a brief render delay
+    requestAnimationFrame(() => {
+      cartEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    });
   };
 
   // Quick add (no modifiers, 1 qty)
@@ -1218,7 +1222,7 @@ const POSPage = () => {
           </div>
 
           {/* Cart items */}
-          <div className="flex-1 overflow-y-auto px-3 py-2">
+          <div className="flex-1 overflow-y-auto px-3 py-2" id="pos-cart-scroll">
             {cart.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full text-center">
                 <ShoppingBag className="w-10 h-10 text-muted-foreground/15 mb-2" />
@@ -1278,6 +1282,7 @@ const POSPage = () => {
                 })}
               </div>
             )}
+            <div ref={cartEndRef} />
           </div>
 
           {/* Cart footer / checkout */}
@@ -1522,17 +1527,56 @@ const POSPage = () => {
                 />
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
                 {quickBills.map((b, i) => (
                   <button
                     type="button"
                     key={i}
                     onClick={() => setCashTendered(b.toFixed(2))}
-                    className="min-h-[52px] py-3 text-base font-sans font-bold bg-muted hover:bg-muted/70 border border-border rounded-sm active:scale-95 transition-all"
+                    className="min-h-[44px] py-2 text-base font-sans font-bold bg-muted hover:bg-muted/70 border border-border rounded-sm active:scale-95 transition-all"
                   >
                     {i === 0 ? "Exact" : `$${b}`}
                   </button>
                 ))}
+              </div>
+
+              {/* Number keypad */}
+              <div className="grid grid-cols-3 gap-1.5 mb-4">
+                {["1","2","3","4","5","6","7","8","9",".","0","⌫"].map((key) => (
+                  <button
+                    type="button"
+                    key={key}
+                    onClick={() => {
+                      if (key === "⌫") {
+                        setCashTendered((prev) => prev.slice(0, -1));
+                      } else if (key === ".") {
+                        setCashTendered((prev) => prev.includes(".") ? prev : prev + ".");
+                      } else {
+                        setCashTendered((prev) => {
+                          const next = prev + key;
+                          // Limit to 2 decimal places
+                          const parts = next.split(".");
+                          if (parts[1] && parts[1].length > 2) return prev;
+                          return next;
+                        });
+                      }
+                    }}
+                    className={`min-h-[52px] py-3 text-xl font-sans font-bold rounded-sm active:scale-95 transition-all ${
+                      key === "⌫"
+                        ? "bg-destructive/10 text-destructive hover:bg-destructive/20 border border-destructive/30"
+                        : "bg-card hover:bg-muted border border-border"
+                    }`}
+                  >
+                    {key}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setCashTendered("")}
+                  className="col-span-3 min-h-[40px] py-2 text-sm font-sans font-bold text-muted-foreground bg-muted/50 hover:bg-muted border border-border rounded-sm active:scale-95 transition-all uppercase tracking-wider"
+                >
+                  Clear
+                </button>
               </div>
 
               <div className={`rounded-sm p-4 mb-4 ${insufficient ? "bg-destructive/10 border-2 border-destructive/30" : "bg-emerald-50 border-2 border-emerald-200"}`}>

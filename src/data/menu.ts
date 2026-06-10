@@ -236,6 +236,16 @@ const drinkChoice: ModifierGroup = {
   ],
 };
 
+const additionalFalafel: ModifierGroup = {
+  id: "additional-falafel",
+  label: "Extra Falafel",
+  required: false,
+  maxSelect: 4,
+  options: [
+    { id: "extra-falafel-ball", name: "Additional Falafel Ball", price: 0.89 },
+  ],
+};
+
 // ── Menu Items (matching Fenton Gyro PDF menu) ───────────────────────────
 
 export const menuItems: MenuItem[] = [
@@ -250,9 +260,9 @@ export const menuItems: MenuItem[] = [
   { id: "burrito-gyro", name: "Burrito Gyro", desc: "Gyro slices, basmati rice, lettuce, tomatoes, onion and tzatziki sauce on a wheat tortilla", price: 10.99, category: "Gyros", image: foodBurritoGyro, modifiers: [toppings, removeIngredients, doubleMeat, makeItCombo], allergens: ["wheat", "dairy"] },
   { id: "philly-gyro", name: "Philly Gyro", desc: "Topped with Gyro slices, grilled onions, peppers and provolone cheese", price: 10.99, category: "Gyros", image: foodPhillyGyro, modifiers: [toppings, removeIngredients, doubleMeat, makeItCombo], allergens: ["wheat", "dairy"] },
   { id: "al-gyro", name: "Al Gyro", desc: "Gyro slices, peppers, onions, provolone cheese drizzled with Al sauce", price: 10.99, category: "Gyros", image: foodAlGyro, modifiers: [toppings, removeIngredients, doubleMeat, makeItCombo], allergens: ["wheat", "dairy"] },
-  { id: "loaded-gyro-fries", name: "Loaded Gyro Fries", desc: "Topped with Gyro slices, feta cheese, lettuce, tomatoes, onion & garlic sauce", price: 12.99, category: "Gyros", image: foodLoadedFries, tag: "Must Try", modifiers: [removeIngredients], allergens: ["dairy"] },
-  { id: "gyro-pizza", name: "Famous Gyro Pizza", desc: "Our signature gyro pizza", price: 8.99, category: "Gyros", image: foodGyroPizza, modifiers: [removeIngredients], allergens: ["wheat", "dairy"] },
-  { id: "pita-pizza", name: "Pita Pizza (Cheese)", desc: "Cheese pizza on pita bread", price: 4.99, category: "Gyros", image: foodPitaPizza, modifiers: [removeIngredients], allergens: ["wheat", "dairy"], vegetarian: true },
+  { id: "loaded-gyro-fries", name: "Loaded Gyro Fries", desc: "Topped with Gyro slices, feta cheese, lettuce, tomatoes, onion & garlic sauce", price: 12.99, category: "Gyros", image: foodLoadedFries, tag: "Must Try", modifiers: [toppings, removeIngredients, doubleMeat, makeItMeal], allergens: ["dairy"] },
+  { id: "gyro-pizza", name: "Famous Gyro Pizza", desc: "Our signature gyro pizza", price: 8.99, category: "Gyros", image: foodGyroPizza, modifiers: [toppings, removeIngredients, doubleMeat], allergens: ["wheat", "dairy"] },
+  { id: "pita-pizza", name: "Pita Pizza (Cheese)", desc: "Cheese pizza on pita bread", price: 4.99, category: "Gyros", image: foodPitaPizza, modifiers: [toppings, removeIngredients, makeItMeal], allergens: ["wheat", "dairy"], vegetarian: true },
 
   // ── BOWLS ────────────────────────────────────────────────────────────
   { id: "gyro-bowl", name: "Gyro Bowl", desc: "Gyro slices, lettuce, tomatoes and onions over basmati rice & drizzled with sriracha ranch", price: 11.99, category: "Bowls", image: foodGyroBowl, tag: "Popular", modifiers: [toppings, removeIngredients, doubleMeat, makeItMeal], allergens: ["dairy"] },
@@ -261,9 +271,9 @@ export const menuItems: MenuItem[] = [
   { id: "buttered-chicken", name: "Buttered Chicken", desc: "Chunks of white meat chicken simmered in a creamy saffron curry sauce served over rice", price: 10.99, category: "Bowls", image: foodButteredChicken, tag: "New", modifiers: [butteredChickenPita], allergens: ["dairy"] },
 
   // ── SALADS ───────────────────────────────────────────────────────────
-  { id: "gyro-salad", name: "Gyro Salad", desc: "Your choice of Gyro slices or grilled chicken, mixed lettuce, feta, onions, tomatoes, cucumbers, olives, green peppers & tzatziki sauce", price: 12.99, category: "Salads", image: foodGyroSalad, modifiers: [gyroSaladProtein, removeIngredients, doubleMeat, makeItMeal], allergens: ["dairy"] },
+  { id: "gyro-salad", name: "Gyro Salad", desc: "Your choice of Gyro slices or grilled chicken, mixed lettuce, feta, onions, tomatoes, cucumbers, olives, green peppers & tzatziki sauce", price: 12.99, category: "Salads", image: foodGyroSalad, modifiers: [gyroSaladProtein, toppings, removeIngredients, doubleMeat, makeItMeal], allergens: ["dairy"] },
   { id: "mediterranean-salad", name: "Mediterranean Salad", desc: "Mixed lettuce, tomatoes, cucumbers, red onions, green peppers, feta cheese & greek vinaigrette", price: 9.99, category: "Salads", image: foodMedSalad, modifiers: [medSaladAddProtein, removeIngredients, makeItMeal], allergens: ["dairy"], vegetarian: true },
-  { id: "falafel-salad", name: "Falafel Salad", desc: "2 Falafel fritters, lettuce, chopped greens, tomatoes, cucumbers, red cabbage, chickpeas, red onions & greek vinaigrette", price: 10.99, category: "Salads", image: foodFalafelSalad, modifiers: [removeIngredients, makeItMeal], vegetarian: true },
+  { id: "falafel-salad", name: "Falafel Salad", desc: "2 Falafel fritters, lettuce, chopped greens, tomatoes, cucumbers, red cabbage, chickpeas, red onions & greek vinaigrette", price: 10.99, category: "Salads", image: foodFalafelSalad, modifiers: [toppings, removeIngredients, additionalFalafel, makeItMeal], vegetarian: true },
 
   // ── APPETIZERS ───────────────────────────────────────────────────────
   { id: "hummus-plate", name: "Hummus Plate", desc: "Roasted garlic hummus served with 2 sliced pitas", price: 6.99, category: "Appetizers", image: foodHummus, tag: "Popular", modifiers: [appetizerExtras], allergens: ["wheat", "sesame"], vegetarian: true },
@@ -292,7 +302,8 @@ export const menuItems: MenuItem[] = [
   { id: "half-lb-chicken-gyro", name: "1/2 lb Chicken Gyro", desc: "Half pound grilled chicken gyro style", price: 7.99, category: "Sides", image: foodChickenGyro, allergens: ["dairy"] },
   { id: "olives-side", name: "Olives", desc: "Side of olives", price: 1.0, category: "Sides", image: foodMedSalad, vegetarian: true },
   { id: "chickpeas-side", name: "Chickpeas", desc: "Side of chickpeas", price: 0.69, category: "Sides", image: foodFalafelPlate, vegetarian: true },
-  { id: "pepperoncini-side", name: "Pepperoncini", desc: "Side of pepperoncini peppers", price: 0.79, category: "Sides", image: foodMedSalad, vegetarian: true },
+  { id: "pepperoncini-side", name: "Pepperoncini", desc: "Side of pepperoncini peppers", price: 0.89, category: "Sides", image: foodMedSalad, vegetarian: true },
+  { id: "butter-sauce-side", name: "Side of Butter Sauce", desc: "Rich, creamy butter sauce", price: 6.99, category: "Sides", image: foodButteredChicken, allergens: ["dairy"] },
 
   // ── KIDS ─────────────────────────────────────────────────────────────
   { id: "kids-meal", name: "Kids Meal", desc: "Gyro slices with a side of our tzatziki sauce & sliced pita bread and drink", price: 7.99, category: "Kids", image: foodKidsMeal, modifiers: [removeIngredients], allergens: ["wheat", "dairy"] },
