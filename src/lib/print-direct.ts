@@ -139,6 +139,7 @@ function buildReceiptSoapXml(order: OrderForReceipt): string {
   body.push(`<text>Thank you!&#10;</text>`);
   body.push(`<text>fentongyro.com&#10;</text>`);
   body.push(`<feed line="3"/>`);
+  body.push(`<pulse drawer="drawer_1" time="pulse_100"/>`);
   body.push(`<cut type="feed"/>`);
 
   const eposPrint =
@@ -197,4 +198,26 @@ export async function directPrintOrder(orderId: string, printerIp?: string): Pro
   if (!text.includes('success="true"')) {
     throw new Error(`Printer rejected: ${text.slice(0, 200)}`);
   }
+}
+
+/**
+ * Kick the cash drawer open without printing a receipt.
+ * Sends a minimal ePOS-Print XML with just the pulse command to the
+ * Epson TM-m30III's DK (Drawer Kick) port.
+ */
+export async function kickCashDrawer(printerIp?: string): Promise<void> {
+  const ip = printerIp || getPrinterIp();
+  const url = `http://${ip}/cgi-bin/epos/service.cgi?devid=local_printer&timeout=5000`;
+  const xml =
+    `<?xml version="1.0" encoding="utf-8"?>` +
+    `<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">` +
+    `<s:Body><epos-print xmlns="http://www.epson-pos.com/schemas/2011/03/epos-print">` +
+    `<pulse drawer="drawer_1" time="pulse_100"/>` +
+    `</epos-print></s:Body></s:Envelope>`;
+  const resp = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "text/xml; charset=utf-8", SOAPAction: '""' },
+    body: xml,
+  });
+  if (!resp.ok) throw new Error(`Drawer kick HTTP ${resp.status}`);
 }

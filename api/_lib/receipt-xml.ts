@@ -127,6 +127,7 @@ export function buildReceiptXml(order: OrderForReceipt): string {
   body.push(`<text>Thank you!&#10;</text>`);
   body.push(`<text>fentongyro.com&#10;</text>`);
   body.push(`<feed line="3"/>`);
+  body.push(`<pulse drawer="drawer_1" time="pulse_100"/>`);
   body.push(`<cut type="feed"/>`);
 
   // SOAP-wrapped ePOS-Print is what the printer's parser accepts (verified

@@ -42,7 +42,7 @@ import {
 import { computeTotals } from "@/lib/pricing";
 import { ValorEPI, getEPIs } from "@/lib/valor-epi";
 import { createOrder, subscribeToOrders, markOrderPaid, updateOrderStatus, saveOrderValorRefs, queueReceiptPrint } from "@/lib/orders";
-import { directPrintOrder, getPrinterIp, setPrinterIp } from "@/lib/print-direct";
+import { directPrintOrder, getPrinterIp, setPrinterIp, kickCashDrawer } from "@/lib/print-direct";
 import { Order, OrderStatus } from "@/data/orders";
 import { DollarSign, ChevronDown, BarChart3, Printer } from "lucide-react";
 
@@ -135,6 +135,10 @@ const POSPage = () => {
 
   const askToPrint = (orderId: string, tag: string, total: number) => {
     setPrintPrompt({ orderId, tag, total });
+    // Kick the cash drawer open on every successful payment
+    kickCashDrawer().catch(() => {
+      toast("Cash drawer didn't open — check printer connection", { duration: 3000 });
+    });
   };
 
   const handlePrintReceipt = async (orderId: string, silent = false) => {
@@ -2337,6 +2341,59 @@ const POSPage = () => {
                   className="px-3 py-2 border border-border bg-background text-foreground text-xs font-sans font-bold uppercase tracking-wider rounded-sm hover:bg-muted active:scale-95 disabled:opacity-50"
                 >
                   Test print
+                </button>
+                <button
+                  disabled={!printerIpInput || printerTestState === "testing"}
+                  onClick={async () => {
+                    setPrinterTestState("testing");
+                    setPrinterTestMsg("Kicking cash drawer…");
+                    try {
+                      await kickCashDrawer(printerIpInput);
+                      // Wait a moment for the drawer to physically open, then
+                      // query the printer's status to check the drawer sensor.
+                      await new Promise((r) => setTimeout(r, 600));
+                      const statusXml =
+                        `<?xml version="1.0" encoding="utf-8"?>` +
+                        `<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">` +
+                        `<s:Body>` +
+                        `<epos-print xmlns="http://www.epson-pos.com/schemas/2011/03/epos-print">` +
+                        `</epos-print></s:Body></s:Envelope>`;
+                      const resp = await fetch(
+                        `http://${printerIpInput}/cgi-bin/epos/service.cgi?devid=local_printer&timeout=5000`,
+                        {
+                          method: "POST",
+                          headers: { "Content-Type": "text/xml; charset=utf-8", SOAPAction: '""' },
+                          body: statusXml,
+                        }
+                      );
+                      const text = await resp.text();
+                      // Epson status byte: drawer pin 3 = bit 2 (0x04).
+                      // status includes "drawer" attribute or the numeric status.
+                      // If the drawer sensor reports open → cable is connected.
+                      const drawerOpen = /drawer_open/.test(text) || /DRAWER_OPEN/.test(text);
+                      // Also check status bitmask — bit 2 of the status byte = drawer open
+                      const statusMatch = text.match(/status="(\d+)"/);
+                      const statusBits = statusMatch ? parseInt(statusMatch[1], 10) : 0;
+                      const drawerBit = (statusBits & 0x04) !== 0;
+                      if (drawerOpen || drawerBit) {
+                        setPrinterTestState("ok");
+                        setPrinterTestMsg("✅ Cash drawer opened — cable connected and working.");
+                      } else {
+                        setPrinterTestState("ok");
+                        setPrinterTestMsg("⚠️ Drawer kick sent — check if it opened. If not, verify the RJ11 cable from the drawer is plugged into the printer's DK port.");
+                      }
+                    } catch (err) {
+                      setPrinterTestState("fail");
+                      setPrinterTestMsg(
+                        err instanceof Error
+                          ? `Drawer test failed: ${err.message}. Check printer IP and connection.`
+                          : "Drawer test failed."
+                      );
+                    }
+                  }}
+                  className="px-3 py-2 border border-border bg-background text-foreground text-xs font-sans font-bold uppercase tracking-wider rounded-sm hover:bg-muted active:scale-95 disabled:opacity-50"
+                >
+                  Test drawer
                 </button>
                 <button
                   disabled={!printerIpInput}
