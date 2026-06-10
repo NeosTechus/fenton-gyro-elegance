@@ -34,6 +34,9 @@ import {
   dollarsToCents,
   cancelValorTransaction,
   ValorCancelledError,
+  ValorTimeoutError,
+  recoverValorTransaction,
+  sendVoid,
   warmupValor,
 } from "@/lib/valor";
 import { computeTotals } from "@/lib/pricing";
@@ -91,7 +94,7 @@ const POSPage = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedMods, setSelectedMods] = useState<Record<string, string[]>>({});
-  const [orderNumber] = useState(() => Math.floor(100 + Math.random() * 900));
+  const [orderNumber, setOrderNumber] = useState(() => Math.floor(100 + Math.random() * 900));
   const [epis] = useState<ValorEPI[]>(() => getEPIs());
   const [selectedEpiId, setSelectedEpiId] = useState<string>(epis[0]?.id || "");
   const selectedTerminal = epis.find((e) => e.id === selectedEpiId);
@@ -117,6 +120,11 @@ const POSPage = () => {
   const [inFlightTxnId, setInFlightTxnId] = useState<string | null>(null);
   const [cashFallbackOpen, setCashFallbackOpen] = useState(false);
   const switchedToCashRef = useRef(false);
+  const checkoutLockRef = useRef(false);
+  const blockedCardRetryRef = useRef(false);
+  const pendingOrderIdRef = useRef<string | null>(null);
+  const [paymentRecovery, setPaymentRecovery] = useState<{ reqTxnId: string; orderId?: string } | null>(null);
+  const [unpaidRecovery, setUnpaidRecovery] = useState<{ orderId: string; tag: string; total: number; reqTxnId: string } | null>(null);
   const [unpaidInFlight, setUnpaidInFlight] = useState<{ orderId: string; txnId: string | null } | null>(null);
   const [unpaidCashFallback, setUnpaidCashFallback] = useState<{ orderId: string; tag: string; total: number } | null>(null);
   const [newOrderCashConfirm, setNewOrderCashConfirm] = useState(false);
@@ -220,7 +228,7 @@ const POSPage = () => {
       if (extra && (extra.auth_code || extra.masked_pan || extra.rrn)) {
         await saveOrderValorRefs(loadedPendingOrderId, extra);
       }
-      return;
+      return loadedPendingOrderId;
     }
     const { total } = computeTotals(totalPrice, payment);
     return await createOrder({
@@ -236,6 +244,103 @@ const POSPage = () => {
       terminal_epi: selectedEpi || undefined,
       ...extra,
     });
+  };
+
+  /** Create an unpaid POS order before sending to the terminal so a successful
+   *  card charge always has a Firestore doc to attach to. */
+  const ensureUnpaidPosOrder = async (): Promise<string> => {
+    if (pendingOrderIdRef.current) return pendingOrderIdRef.current;
+    if (loadedPendingOrderId) return loadedPendingOrderId;
+    const { total } = computeTotals(totalPrice, "card");
+    const id = await createOrder({
+      customer_name: orderType === "dine-in" ? "Dine-In Customer" : "Take-Out Customer",
+      customer_email: "",
+      customer_phone: "",
+      items: buildOrderItems(),
+      total,
+      order_type: orderType,
+      notes: `POS Order #${orderNumber}`,
+      source: "pos",
+      payment: "card",
+      payment_status: "unpaid",
+      terminal_epi: selectedEpi || undefined,
+    });
+    setLoadedPendingOrderId(id);
+    pendingOrderIdRef.current = id;
+    blockedCardRetryRef.current = true;
+    return id;
+  };
+
+  const voidStrayCardCharge = async (result: { TRAN_NO?: string }) => {
+    if (!result.TRAN_NO || !selectedEpi || !selectedAppKey) return;
+    const MAX_RETRIES = 3;
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        await sendVoid(result.TRAN_NO, selectedEpi, selectedAppKey);
+        console.log("[pos] stray-charge void succeeded on attempt", attempt);
+        return;
+      } catch (e) {
+        console.error(`[pos] stray-charge void attempt ${attempt}/${MAX_RETRIES} failed`, e);
+        if (attempt < MAX_RETRIES) {
+          await new Promise((r) => setTimeout(r, 1500 * attempt));
+        }
+      }
+    }
+    // All retries failed — alert staff to void manually from terminal
+    toast.error(
+      "⚠️ AUTO-VOID FAILED — Manually void transaction " +
+        result.TRAN_NO +
+        " from the Valor terminal batch report to prevent a double charge.",
+      { duration: 15000 }
+    );
+  };
+
+  const persistCardApproval = async (
+    orderId: string,
+    result: Awaited<ReturnType<typeof sendCreditSale>>,
+  ) => {
+    const tenderedCash = /cash/i.test(String(result.TRAN_TYPE || "")) || !result.MASKED_PAN;
+    await markOrderPaid(orderId);
+    if (!tenderedCash) {
+      await saveOrderValorRefs(orderId, {
+        auth_code: result.CODE,
+        masked_pan: result.MASKED_PAN,
+        rrn: result.RRN,
+      });
+    }
+    return tenderedCash;
+  };
+
+  const finalizeCardPayment = async (
+    result: Awaited<ReturnType<typeof sendCreditSale>>,
+    tag: string,
+    orderId: string,
+    orderTotal: number,
+  ) => {
+    if (switchedToCashRef.current) {
+      voidStrayCardCharge(result);
+      return;
+    }
+    try {
+      const tenderedCash = await persistCardApproval(orderId, result);
+      if (tenderedCash) {
+        toast.success(`Cash collected at terminal — $${orderTotal.toFixed(2)}`, { duration: 2000 });
+      } else {
+        toast.success(
+          `Payment approved — ${result.ISSUER} ${result.MASKED_PAN} | Auth: ${result.CODE}`,
+          { duration: 2000 }
+        );
+      }
+      askToPrint(orderId, tag, orderTotal);
+      resetOrder();
+    } catch (e) {
+      checkoutLockRef.current = true;
+      toast.error(
+        "Card was approved but saving the order failed — do NOT charge again. Tap Payment went through or call support.",
+        { duration: 8000 }
+      );
+      throw e;
+    }
   };
 
   const loadPendingIntoCart = (order: Order) => {
@@ -264,19 +369,40 @@ const POSPage = () => {
     });
     setCart(items);
     setLoadedPendingOrderId(order.id);
+    pendingOrderIdRef.current = order.id;
+    blockedCardRetryRef.current = false;
     setOrderType(order.order_type);
     setShowPendingPayments(false);
     setExpandedUnpaidOrder(null);
     toast.success(`${order.customer_name || `Order #${order.id.slice(0, 6).toUpperCase()}`} loaded — ready to checkout`, { duration: 2000 });
   };
 
+  const dismissPaymentRecovery = (cancelTxn: boolean) => {
+    if (cancelTxn && paymentRecovery?.reqTxnId) {
+      cancelValorTransaction(selectedEpi, selectedAppKey, paymentRecovery.reqTxnId);
+    }
+    setPaymentRecovery(null);
+    checkoutLockRef.current = false;
+    blockedCardRetryRef.current = false;
+    setIsProcessing(false);
+    setInFlightTxnId(null);
+  };
+
   const handleCheckout = async () => {
-    if (cart.length === 0) return;
+    if (cart.length === 0 || checkoutLockRef.current || paymentRecovery) return;
+    if (blockedCardRetryRef.current) {
+      toast.error("Previous card attempt may still be processing — use the payment prompt or clear the cart.", { duration: 4000 });
+      return;
+    }
+    checkoutLockRef.current = true;
     switchedToCashRef.current = false;
     setIsProcessing(true);
+    let orderId: string | null = null;
+    const cardTotal = computeTotals(totalPrice, "card").total;
+    let awaitingRecovery = false;
     try {
-      // Send pre-surcharge amount; the Valor terminal applies its own
-      // card surcharge on top. Sending the card total would double-charge.
+      orderId = await ensureUnpaidPosOrder();
+
       const { total: totalWithTax } = computeTotals(totalPrice, "cash");
       const lineItems = cart.map((c) => ({
         product_code: c.item.name,
@@ -288,41 +414,63 @@ const POSPage = () => {
         amountCents: dollarsToCents(totalWithTax),
         tipEnabled: true,
         printReceipt: true,
-        invoiceNumber: orderNumber.toString(),
+        invoiceNumber: orderId,
         lineItems,
         epi: selectedEpi,
         appkey: selectedAppKey,
         onTxnId: (id) => setInFlightTxnId(id),
       });
 
-      const tenderedCash = /cash/i.test(String(result.TRAN_TYPE || "")) || !result.MASKED_PAN;
-      let savedId: string;
-      if (tenderedCash) {
-        savedId = await saveOrder("cash");
-        toast.success(`Cash collected at terminal — $${computeTotals(totalPrice, "cash").total.toFixed(2)}`, { duration: 2000 });
-      } else {
-        savedId = await saveOrder("card", {
-          auth_code: result.CODE,
-          masked_pan: result.MASKED_PAN,
-          rrn: result.RRN,
-        });
-        toast.success(
-          `Payment approved — ${result.ISSUER} ${result.MASKED_PAN} | Auth: ${result.CODE}`,
-          { duration: 2000 }
-        );
-      }
-      askToPrint(savedId, `#${orderNumber}`, computeTotals(totalPrice, tenderedCash ? "cash" : "card").total);
-      resetOrder();
+      await finalizeCardPayment(result, `#${orderNumber}`, orderId, cardTotal);
     } catch (error) {
-      if (switchedToCashRef.current) return; // user already chose cash; ignore late cancel
+      if (switchedToCashRef.current) return;
       if (error instanceof ValorCancelledError) {
         setCashFallbackOpen(true);
+        return;
+      }
+      if (error instanceof ValorTimeoutError) {
+        awaitingRecovery = true;
+        setIsProcessing(false);
+        setPaymentRecovery({ reqTxnId: error.reqTxnId, orderId: orderId ?? loadedPendingOrderId ?? undefined });
+        toast.error("Timed out waiting for terminal — check if payment went through before retrying", { duration: 5000 });
         return;
       }
       console.error("POS checkout error:", error);
       toast.error(error instanceof Error ? error.message : "Payment failed");
     } finally {
-      if (!switchedToCashRef.current) {
+      if (!switchedToCashRef.current && !awaitingRecovery) {
+        checkoutLockRef.current = false;
+        setIsProcessing(false);
+        setInFlightTxnId(null);
+      }
+    }
+  };
+
+  const handleRecoverPayment = async () => {
+    if (!paymentRecovery || !selectedEpi || !selectedAppKey) return;
+    checkoutLockRef.current = true;
+    setIsProcessing(true);
+    const orderId = paymentRecovery.orderId ?? loadedPendingOrderId;
+    const cardTotal = computeTotals(totalPrice, "card").total;
+    try {
+      const result = await recoverValorTransaction(
+        selectedEpi,
+        selectedAppKey,
+        paymentRecovery.reqTxnId,
+      );
+      if (!orderId) throw new Error("Order record missing — check Pending Payments");
+      setPaymentRecovery(null);
+      await finalizeCardPayment(result, `#${orderNumber}`, orderId, cardTotal);
+    } catch (error) {
+      if (error instanceof ValorCancelledError) {
+        dismissPaymentRecovery(false);
+        setCashFallbackOpen(true);
+        return;
+      }
+      toast.error(error instanceof Error ? error.message : "Still waiting on terminal");
+    } finally {
+      if (!paymentRecovery) {
+        checkoutLockRef.current = false;
         setIsProcessing(false);
         setInFlightTxnId(null);
       }
@@ -334,12 +482,13 @@ const POSPage = () => {
     const toCancel = inFlightTxnId;
     setInFlightTxnId(null);
     setIsProcessing(false);
+    dismissPaymentRecovery(true);
     if (toCancel) {
-      // Fire-and-forget cancel; terminal will abort. Don't block the UI.
       cancelValorTransaction(selectedEpi, selectedAppKey, toCancel);
     }
     try {
-      const savedId = await saveOrder("cash");
+      const savedId = pendingOrderIdRef.current ?? loadedPendingOrderId ?? (await ensureUnpaidPosOrder());
+      await markOrderPaid(savedId);
       toast.success("Order saved as cash payment", { duration: 2000 });
       askToPrint(savedId, `#${orderNumber}`, computeTotals(totalPrice, "cash").total);
       resetOrder();
@@ -349,7 +498,10 @@ const POSPage = () => {
   };
 
   const handleUnpaidCardPay = async (order: Order, tag: string) => {
+    if (checkoutLockRef.current || unpaidInFlight) return;
+    checkoutLockRef.current = true;
     setUnpaidInFlight({ orderId: order.id, txnId: null });
+    let awaitingRecovery = false;
     try {
       const result = await sendCreditSale({
         amountCents: dollarsToCents(order.total),
@@ -360,8 +512,13 @@ const POSPage = () => {
         appkey: selectedAppKey,
         onTxnId: (id) => setUnpaidInFlight({ orderId: order.id, txnId: id }),
       });
-      await markOrderPaid(order.id);
-      const tenderedCash = /cash/i.test(String(result.TRAN_TYPE || "")) || !result.MASKED_PAN;
+
+      if (unpaidSwitchedRef.current.has(order.id)) {
+        voidStrayCardCharge(result);
+        return;
+      }
+
+      const tenderedCash = await persistCardApproval(order.id, result);
       if (tenderedCash) {
         toast.success(`Cash collected at terminal for ${tag}`, { duration: 2000 });
       } else {
@@ -378,11 +535,47 @@ const POSPage = () => {
         setUnpaidCashFallback({ orderId: order.id, tag, total: order.total });
         return;
       }
+      if (err instanceof ValorTimeoutError) {
+        awaitingRecovery = true;
+        setUnpaidRecovery({ orderId: order.id, tag, total: order.total, reqTxnId: err.reqTxnId });
+        toast.error("Timed out — check terminal before retrying card", { duration: 5000 });
+        return;
+      }
       toast.error(err instanceof Error ? err.message : "Card payment failed");
     } finally {
-      if (!unpaidSwitchedRef.current.has(order.id)) {
+      if (!awaitingRecovery && !unpaidSwitchedRef.current.has(order.id)) {
+        checkoutLockRef.current = false;
         setUnpaidInFlight((cur) => (cur?.orderId === order.id ? null : cur));
       }
+    }
+  };
+
+  const handleRecoverUnpaidPayment = async () => {
+    if (!unpaidRecovery || !selectedEpi || !selectedAppKey) return;
+    checkoutLockRef.current = true;
+    setUnpaidInFlight({ orderId: unpaidRecovery.orderId, txnId: unpaidRecovery.reqTxnId });
+    try {
+      const result = await recoverValorTransaction(
+        selectedEpi,
+        selectedAppKey,
+        unpaidRecovery.reqTxnId,
+      );
+      const { orderId, tag, total } = unpaidRecovery;
+      setUnpaidRecovery(null);
+      const tenderedCash = await persistCardApproval(orderId, result);
+      toast.success(
+        tenderedCash
+          ? `Cash collected at terminal for ${tag}`
+          : `Card payment for ${tag} — ${result.ISSUER} ${result.MASKED_PAN}`,
+        { duration: 2000 }
+      );
+      askToPrint(orderId, tag, total);
+      setExpandedUnpaidOrder(null);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Still waiting on terminal");
+    } finally {
+      checkoutLockRef.current = false;
+      setUnpaidInFlight(null);
     }
   };
 
@@ -419,7 +612,8 @@ const POSPage = () => {
   const handleConfirmCashFallback = async () => {
     setCashFallbackOpen(false);
     try {
-      const savedId = await saveOrder("cash");
+      const savedId = pendingOrderIdRef.current ?? loadedPendingOrderId ?? (await ensureUnpaidPosOrder());
+      await markOrderPaid(savedId);
       toast.success("Order saved as cash payment", { duration: 2000 });
       askToPrint(savedId, `#${orderNumber}`, computeTotals(totalPrice, "cash").total);
       resetOrder();
@@ -435,6 +629,14 @@ const POSPage = () => {
     setSelectedMods({});
     setSearchQuery("");
     setLoadedPendingOrderId(null);
+    pendingOrderIdRef.current = null;
+    setPaymentRecovery(null);
+    setUnpaidRecovery(null);
+    setIsProcessing(false);
+    checkoutLockRef.current = false;
+    switchedToCashRef.current = false;
+    blockedCardRetryRef.current = false;
+    setOrderNumber(Math.floor(100 + Math.random() * 900));
   };
 
   const filteredItems = searchQuery.trim()
@@ -722,6 +924,12 @@ const POSPage = () => {
                               <div className="grid grid-cols-2 gap-1.5">
                                 <button
                                   onClick={async () => {
+                                    if (checkoutLockRef.current || unpaidInFlight) {
+                                      toast.error("Another payment is in progress — wait for it to complete", { duration: 3000 });
+                                      return;
+                                    }
+                                    checkoutLockRef.current = true;
+                                    try {
                                     const cashAmt = parseFloat(splitPayment.cashAmount) || 0;
                                     const cardAmt = Math.max(0, order.total - cashAmt);
                                     if (cardAmt > 0) {
@@ -744,6 +952,9 @@ const POSPage = () => {
                                     askToPrint(order.id, tag, order.total);
                                     setSplitPayment(null);
                                     setExpandedUnpaidOrder(null);
+                                    } finally {
+                                      checkoutLockRef.current = false;
+                                    }
                                   }}
                                   className="py-2.5 bg-emerald-600 text-white text-[10px] font-sans font-bold uppercase tracking-wider rounded-sm hover:bg-emerald-700 active:scale-[0.95] transition-all"
                                 >
@@ -761,6 +972,12 @@ const POSPage = () => {
                           <div className="sticky bottom-0 grid grid-cols-4 gap-1.5 px-3 py-2 bg-amber-50 border-t border-amber-200">
                             <button
                               onClick={async () => {
+                                // If a card charge is in-flight for this order,
+                                // use the safe switch-to-cash flow that cancels the card first
+                                if (unpaidInFlight?.orderId === order.id) {
+                                  handleUnpaidSwitchToCash(order.id, tag);
+                                  return;
+                                }
                                 try {
                                   await markOrderPaid(order.id);
                                   toast.success(`Cash collected for ${tag}`, { duration: 2000 });
@@ -783,16 +1000,27 @@ const POSPage = () => {
                               </button>
                             ) : (
                               <button
-                                onClick={() => handleUnpaidCardPay(order, tag)}
-                                disabled={!!unpaidInFlight}
-                                className="py-2.5 bg-blue-600 text-white text-[10px] font-sans font-bold uppercase tracking-wider rounded-sm hover:bg-blue-700 active:scale-[0.95] transition-all disabled:opacity-50"
+                                onClick={() => {
+                                  if (unpaidInFlight) {
+                                    toast("Card payment in progress for another order — finish or cancel it first", { duration: 4000 });
+                                    return;
+                                  }
+                                  handleUnpaidCardPay(order, tag);
+                                }}
+                                className={`py-2.5 text-[10px] font-sans font-bold uppercase tracking-wider rounded-sm active:scale-[0.95] transition-all ${unpaidInFlight ? "bg-blue-600/50 text-white/60 cursor-not-allowed" : "bg-blue-600 text-white hover:bg-blue-700"}`}
                               >
                                 💳 Card
                               </button>
                             )}
                             <button
-                              onClick={() => setSplitPayment({ orderId: order.id, cashAmount: (order.total / 2).toFixed(2) })}
-                              className="py-2.5 bg-violet-600 text-white text-[10px] font-sans font-bold uppercase tracking-wider rounded-sm hover:bg-violet-700 active:scale-[0.95] transition-all"
+                              onClick={() => {
+                                if (unpaidInFlight) {
+                                  toast("Wait for the card payment to finish first, or tap 'Pay Cash Instead' to switch", { duration: 4000 });
+                                  return;
+                                }
+                                setSplitPayment({ orderId: order.id, cashAmount: (order.total / 2).toFixed(2) });
+                              }}
+                              className={`py-2.5 text-[10px] font-sans font-bold uppercase tracking-wider rounded-sm active:scale-[0.95] transition-all ${unpaidInFlight ? "bg-violet-600/50 text-white/60 cursor-not-allowed" : "bg-violet-600 text-white hover:bg-violet-700"}`}
                             >
                               ✂️ Split
                             </button>
@@ -1113,34 +1341,59 @@ const POSPage = () => {
                   <div className="grid grid-cols-2 gap-2">
                     <button
                       onClick={async () => {
+                        if (checkoutLockRef.current || paymentRecovery) return;
+                        checkoutLockRef.current = true;
+                        switchedToCashRef.current = false;
+                        setIsProcessing(true);
                         const total = computeTotals(totalPrice, "cash").total;
                         const cashAmt = parseFloat(posSplitCash) || 0;
                         const cardAmt = Math.max(0, total - cashAmt);
-                        setIsProcessing(true);
+                        let orderId: string | null = null;
+                        let awaitingRecovery = false;
                         try {
+                          orderId = await ensureUnpaidPosOrder();
                           if (cardAmt > 0) {
-                            await sendCreditSale({
+                            const result = await sendCreditSale({
                               amountCents: dollarsToCents(cardAmt),
                               tipEnabled: false,
                               printReceipt: true,
-                              invoiceNumber: orderNumber.toString(),
+                              invoiceNumber: orderId,
                               epi: selectedEpi,
-        appkey: selectedAppKey,
+                              appkey: selectedAppKey,
+                              onTxnId: (id) => setInFlightTxnId(id),
                             });
+                            if (switchedToCashRef.current) {
+                              voidStrayCardCharge(result);
+                              return;
+                            }
+                            await persistCardApproval(orderId, result);
+                          } else {
+                            await markOrderPaid(orderId);
                           }
-                          const savedId = await saveOrder("card", {});
                           toast.success(`Split: $${cashAmt.toFixed(2)} cash + $${cardAmt.toFixed(2)} card`, { duration: 3000 });
-                          askToPrint(savedId, `#${orderNumber}`, total);
+                          askToPrint(orderId, `#${orderNumber}`, total);
                           setPosSplitMode(false);
                           setPosSplitCash("");
                           resetOrder();
                         } catch (err) {
+                          if (switchedToCashRef.current) return;
+                          if (err instanceof ValorTimeoutError) {
+                            awaitingRecovery = true;
+                            setIsProcessing(false);
+                            setPaymentRecovery({ reqTxnId: err.reqTxnId, orderId: orderId ?? undefined });
+                            toast.error("Timed out — check terminal before retrying", { duration: 5000 });
+                            return;
+                          }
                           toast.error(err instanceof Error ? err.message : "Card payment failed");
                         } finally {
-                          setIsProcessing(false);
+                          if (!awaitingRecovery && !switchedToCashRef.current) {
+                            checkoutLockRef.current = false;
+                            setIsProcessing(false);
+                            setInFlightTxnId(null);
+                          }
                         }
                       }}
-                      disabled={isProcessing}
+                      disabled={isProcessing || !!paymentRecovery}
                       className="py-3 bg-emerald-600 text-white font-sans font-bold text-xs uppercase tracking-wider rounded-sm hover:bg-emerald-700 active:scale-[0.95] transition-all disabled:opacity-50"
                     >
                       {isProcessing ? "Processing…" : "Confirm Split"}
@@ -1168,7 +1421,8 @@ const POSPage = () => {
                     </button>
                     <button
                       onClick={() => {
-                        switchedToCashRef.current = true; // stop the in-flight handler from firing error toast
+                        switchedToCashRef.current = true; // stop the in-flight handler from saving a duplicate card order
+                        checkoutLockRef.current = false;
                         const toCancel = inFlightTxnId;
                         setInFlightTxnId(null);
                         setIsProcessing(false);
@@ -1186,21 +1440,39 @@ const POSPage = () => {
                 <>
                   <div className="grid grid-cols-3 gap-2">
                     <button
-                      onClick={handleCheckout}
+                      onClick={() => {
+                        if (paymentRecovery) {
+                          toast("Check the payment recovery dialog above — resolve it before starting a new payment", { duration: 4000 });
+                          return;
+                        }
+                        handleCheckout();
+                      }}
                       disabled={isProcessing}
                       className="py-4 bg-accent text-accent-foreground font-sans font-bold text-sm uppercase tracking-wider rounded-md flex items-center justify-center gap-2 hover:opacity-90 active:scale-[0.96] transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-md"
                     >
                       <CreditCard className="w-4 h-4" /> Card
                     </button>
                     <button
-                      onClick={() => { setCashTendered(""); setNewOrderCashConfirm(true); }}
+                      onClick={() => {
+                        if (paymentRecovery) {
+                          toast("Check the payment recovery dialog above — resolve it before starting a new payment", { duration: 4000 });
+                          return;
+                        }
+                        setCashTendered(""); setNewOrderCashConfirm(true);
+                      }}
                       disabled={isProcessing}
                       className="py-4 bg-primary text-primary-foreground font-sans font-bold text-sm uppercase tracking-wider rounded-md flex items-center justify-center gap-2 hover:opacity-90 active:scale-[0.96] transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-md"
                     >
                       <Banknote className="w-4 h-4" /> Cash
                     </button>
                     <button
-                      onClick={() => { setPosSplitMode(true); setPosSplitCash((computeTotals(totalPrice, "cash").total / 2).toFixed(2)); }}
+                      onClick={() => {
+                        if (paymentRecovery) {
+                          toast("Check the payment recovery dialog above — resolve it before starting a new payment", { duration: 4000 });
+                          return;
+                        }
+                        setPosSplitMode(true); setPosSplitCash((computeTotals(totalPrice, "cash").total / 2).toFixed(2));
+                      }}
                       disabled={isProcessing}
                       className="py-4 bg-violet-600 text-white font-sans font-bold text-sm uppercase tracking-wider rounded-md flex items-center justify-center gap-2 hover:opacity-90 active:scale-[0.96] transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-md"
                     >
@@ -1366,6 +1638,76 @@ const POSPage = () => {
                 className="py-2.5 bg-muted text-muted-foreground font-sans font-bold text-xs uppercase tracking-wider rounded-sm hover:bg-muted/80 active:scale-[0.96]"
               >
                 No — keep unpaid
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Unpaid order payment recovery — terminal may have approved after timeout */}
+      {unpaidRecovery && (
+        <div className="fixed inset-0 bg-foreground/40 z-[65] flex items-center justify-center p-4">
+          <div className="bg-background rounded-md shadow-2xl max-w-sm w-full p-5 border-2 border-amber-400">
+            <h3 className="font-display text-lg font-bold text-foreground mb-1">Check terminal — {unpaidRecovery.tag}</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              Payment for <strong>${unpaidRecovery.total.toFixed(2)}</strong> may have gone through on the reader. Do <strong>not</strong> tap Card again unless you confirmed it declined.
+            </p>
+            <div className="grid grid-cols-1 gap-2">
+              <button
+                onClick={handleRecoverUnpaidPayment}
+                disabled={!!unpaidInFlight}
+                className="py-3 bg-emerald-600 text-white font-sans font-bold text-xs uppercase tracking-wider rounded-sm hover:bg-emerald-700 active:scale-[0.96] disabled:opacity-50"
+              >
+                Payment went through
+              </button>
+              <button
+                onClick={() => {
+                  cancelValorTransaction(selectedEpi, selectedAppKey, unpaidRecovery.reqTxnId);
+                  setUnpaidRecovery(null);
+                  checkoutLockRef.current = false;
+                  setUnpaidInFlight(null);
+                }}
+                className="py-2.5 bg-muted text-muted-foreground font-sans font-bold text-xs uppercase tracking-wider rounded-sm hover:bg-muted/80 active:scale-[0.96]"
+              >
+                No payment — try card again
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Payment recovery — terminal may have approved after a timeout */}
+      {paymentRecovery && (
+        <div className="fixed inset-0 bg-foreground/40 z-[65] flex items-center justify-center p-4">
+          <div className="bg-background rounded-md shadow-2xl max-w-sm w-full p-5 border-2 border-amber-400">
+            <h3 className="font-display text-lg font-bold text-foreground mb-1">Check terminal before retrying</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              The POS lost contact with the terminal. If the customer already paid on the card reader, tap <strong>Payment went through</strong> — do <strong>not</strong> run card again or you may double-charge.
+            </p>
+            <div className="grid grid-cols-1 gap-2">
+              <button
+                onClick={handleRecoverPayment}
+                disabled={isProcessing}
+                className="py-3 bg-emerald-600 text-white font-sans font-bold text-xs uppercase tracking-wider rounded-sm hover:bg-emerald-700 active:scale-[0.96] disabled:opacity-50"
+              >
+                {isProcessing ? "Checking terminal…" : "Payment went through"}
+              </button>
+              <button
+                onClick={() => {
+                  dismissPaymentRecovery(true);
+                  setCashFallbackOpen(true);
+                }}
+                disabled={isProcessing}
+                className="py-2.5 bg-primary text-primary-foreground font-sans font-bold text-xs uppercase tracking-wider rounded-sm hover:opacity-90 active:scale-[0.96] disabled:opacity-50"
+              >
+                Customer paid cash instead
+              </button>
+              <button
+                onClick={() => dismissPaymentRecovery(true)}
+                disabled={isProcessing}
+                className="py-2.5 bg-muted text-muted-foreground font-sans font-bold text-xs uppercase tracking-wider rounded-sm hover:bg-muted/80 active:scale-[0.96] disabled:opacity-50"
+              >
+                No payment — try card again
               </button>
             </div>
           </div>

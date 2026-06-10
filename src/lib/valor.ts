@@ -156,6 +156,84 @@ export class ValorCancelledError extends Error {
   }
 }
 
+export class ValorTimeoutError extends Error {
+  reqTxnId: string;
+  constructor(reqTxnId: string, message = "Valor transaction timed out (180s). Check terminal.") {
+    super(message);
+    this.name = "ValorTimeoutError";
+    this.reqTxnId = reqTxnId;
+  }
+}
+
+// Valor wraps the terminal payload as { error_no, response: {...txn} } or
+// { error_no, payload: {...} }. STATE may come back as a number or string.
+const extractTxn = (data: any) =>
+  data?.response?.response || data?.response?.payload || data?.response;
+const stateOf = (p: any) => (p?.STATE !== undefined ? String(p.STATE) : undefined);
+
+// A response is final when STATE=0 AND it carries a positive completion
+// signal — either MASKED_PAN (card sale) or a cash-tender marker
+// (TRAN_TYPE="Cash" / TRAN_MODE="6"). We avoid looser heuristics because
+// intermediate polling responses can also carry STATE=0 with partial
+// fields, and returning early leaves the txn live on the terminal —
+// which causes the next publish to fail with PROCESSING ERROR.
+const isFinalSuccess = (p: any) => {
+  if (stateOf(p) !== "0") return false;
+  if (p?.MASKED_PAN) return true;
+  if (/cash/i.test(String(p?.TRAN_TYPE || ""))) return true;
+  if (String(p?.TRAN_MODE || "") === "6") return true;
+  const auth = String(p?.AUTH_RSP_TEXT || "");
+  if (auth && /APPROV|OK|SUCCESS/i.test(auth)) return true;
+  return false;
+};
+
+async function pollValorUntilDone(
+  epi: string,
+  appkey: string,
+  reqTxnId: string,
+  maxMs: number,
+): Promise<ValorSuccessResponse> {
+  const start = Date.now();
+  while (Date.now() - start < maxMs) {
+    await sleep(POLL_INTERVAL_MS);
+
+    const statusRes = await fetch("/api/valor-terminal-status", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ epi, appkey, reqTxnId }),
+    });
+
+    const statusData = await statusRes.json();
+    if (!statusRes.ok) continue;
+
+    const txn = extractTxn(statusData);
+    console.log("[valor-poll]", { reqTxnId, raw: statusData, txn });
+    if (!txn) continue;
+
+    const state = stateOf(txn);
+    if (isFinalSuccess(txn)) {
+      return txn as ValorSuccessResponse;
+    }
+    if (state === "-1") {
+      const msg = (txn as ValorFailureResponse).ERROR_MSG || "Transaction failed";
+      if (/cancel/i.test(msg)) throw new ValorCancelledError(msg);
+      throw new Error(msg);
+    }
+  }
+
+  throw new ValorTimeoutError(reqTxnId);
+}
+
+/** Continue polling an in-flight txn — use after a timeout if the terminal may still be processing. */
+export function recoverValorTransaction(
+  epi: string,
+  appkey: string,
+  reqTxnId: string,
+  maxMs = 90_000,
+) {
+  return pollValorUntilDone(epi, appkey, reqTxnId, maxMs);
+}
+
 export async function sendValorTransaction(
   request: ValorSaleRequest,
   epi: string,
@@ -186,28 +264,6 @@ export async function sendValorTransaction(
   const reqTxnId = publishData.reqTxnId;
   if (reqTxnId && onTxnId) onTxnId(reqTxnId);
 
-  // Valor wraps the terminal payload as { error_no, response: {...txn} } or
-  // { error_no, payload: {...} }. STATE may come back as a number or string.
-  const extractTxn = (data: any) =>
-    data?.response?.response || data?.response?.payload || data?.response;
-  const stateOf = (p: any) => (p?.STATE !== undefined ? String(p.STATE) : undefined);
-
-  // A response is final when STATE=0 AND it carries a positive completion
-  // signal — either MASKED_PAN (card sale) or a cash-tender marker
-  // (TRAN_TYPE="Cash" / TRAN_MODE="6"). We avoid looser heuristics because
-  // intermediate polling responses can also carry STATE=0 with partial
-  // fields, and returning early leaves the txn live on the terminal —
-  // which causes the next publish to fail with PROCESSING ERROR.
-  const isFinalSuccess = (p: any) => {
-    if (stateOf(p) !== "0") return false;
-    if (p?.MASKED_PAN) return true;
-    if (/cash/i.test(String(p?.TRAN_TYPE || ""))) return true;
-    if (String(p?.TRAN_MODE || "") === "6") return true;
-    const auth = String(p?.AUTH_RSP_TEXT || "");
-    if (auth && /APPROV|OK|SUCCESS/i.test(auth)) return true;
-    return false;
-  };
-
   // Some publish responses may already include the final result
   const immediate = extractTxn(publishData);
   if (isFinalSuccess(immediate)) {
@@ -217,36 +273,12 @@ export async function sendValorTransaction(
     throw new Error((immediate as ValorFailureResponse).ERROR_MSG || "Transaction failed");
   }
 
-  // 2. Poll for status until done
-  const start = Date.now();
-  while (Date.now() - start < POLL_TIMEOUT_MS) {
-    await sleep(POLL_INTERVAL_MS);
-
-    const statusRes = await fetch("/api/valor-terminal-status", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ epi, appkey, reqTxnId }),
-    });
-
-    const statusData = await statusRes.json();
-    if (!statusRes.ok) continue;
-
-    const txn = extractTxn(statusData);
-    console.log("[valor-poll]", { reqTxnId, raw: statusData, txn });
-    if (!txn) continue;
-
-    const state = stateOf(txn);
-    if (isFinalSuccess(txn)) {
-      return txn as ValorSuccessResponse;
-    }
-    if (state === "-1") {
-      const msg = (txn as ValorFailureResponse).ERROR_MSG || "Transaction failed";
-      if (/cancel/i.test(msg)) throw new ValorCancelledError(msg);
-      throw new Error(msg);
-    }
+  if (!reqTxnId) {
+    throw new Error("Failed to publish transaction — no transaction ID returned");
   }
 
-  throw new Error("Valor transaction timed out (180s). Check terminal.");
+  // 2. Poll for status until done
+  return pollValorUntilDone(epi, appkey, reqTxnId, POLL_TIMEOUT_MS);
 }
 
 // ── Convenience: Credit Card Sale ────────────────────────────────────────

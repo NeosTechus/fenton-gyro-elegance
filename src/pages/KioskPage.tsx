@@ -54,6 +54,7 @@ const KioskPage = () => {
   const [itemQty, setItemQty] = useState(1);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
+  const checkoutLockRef = useRef(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedMods, setSelectedMods] = useState<Record<string, string[]>>({});
   const [epis] = useState<ValorEPI[]>(() => getEPIs());
@@ -186,44 +187,64 @@ const KioskPage = () => {
 
   const handleCheckout = async () => {
     if (cart.length === 0) return;
+    if (checkoutLockRef.current) return;
+    checkoutLockRef.current = true;
     setIsProcessing(true);
+    let orderId: string | null = null;
     try {
-      // Send pre-surcharge amount; the Valor terminal applies its own
-      // configured card surcharge. Sending the card total would cause
-      // a double-charge (ours + terminal's).
+      // Create an unpaid order FIRST so a successful card charge always
+      // has a Firestore doc to attach to — even if the post-payment save fails.
       const { total: totalWithTax } = computeTotals(totalPrice, "cash");
-      const lineItems = cart.map((c) => ({
-        product_code: c.item.name,
-        quantity: c.qty.toString(),
-        total: ((c.item.price + c.modifiersTotal) * c.qty).toFixed(2),
-      }));
+      orderId = await createOrder({
+        customer_name: `${firstName.trim()} ${lastName.trim()}`.trim() || (orderType === "dine-in" ? "Dine-In Customer" : "Take-Out Customer"),
+        customer_email: customerEmail.trim(),
+        customer_phone: customerPhone.trim(),
+        items: buildOrderItems(),
+        total: computeTotals(totalPrice, "card").total,
+        order_type: orderType || "dine-in",
+        notes: `Kiosk ${orderType} order`,
+        source: "kiosk",
+        payment: "card",
+        payment_status: "unpaid",
+        terminal_epi: selectedEpi || undefined,
+      });
 
       const result = await sendCreditSale({
         amountCents: dollarsToCents(totalWithTax),
         tipEnabled: false,
         printReceipt: true,
-        lineItems,
+        invoiceNumber: orderId,
         epi: selectedEpi,
         appkey: selectedAppKey,
       });
 
       const tenderedCash = /cash/i.test(String(result.TRAN_TYPE || "")) || !result.MASKED_PAN;
-      if (tenderedCash) {
-        await saveKioskOrder("cash");
-        toast.success("Order placed! Please pay cash at the counter.", { duration: 1500 });
-      } else {
-        await saveKioskOrder("card", {
+      // Mark the pre-created order as paid
+      const { markOrderPaid, saveOrderValorRefs } = await import("@/lib/orders");
+      await markOrderPaid(orderId);
+      if (!tenderedCash) {
+        await saveOrderValorRefs(orderId, {
           auth_code: result.CODE,
           masked_pan: result.MASKED_PAN,
           rrn: result.RRN,
         });
         toast.success("Payment approved! Thank you.", { duration: 1000 });
+      } else {
+        toast.success("Order placed! Please pay cash at the counter.", { duration: 1500 });
       }
       resetOrder();
     } catch (error) {
       console.error("Kiosk checkout error:", error);
-      toast.error(error instanceof Error ? error.message : "Payment failed");
+      if (orderId) {
+        // Order was created but payment failed — it stays as "unpaid" in
+        // the pending payments queue so staff can see it
+        toast.error("Payment failed — please try again or ask staff for help", { duration: 5000 });
+      } else {
+        toast.error(error instanceof Error ? error.message : "Payment failed");
+      }
       setIsProcessing(false);
+    } finally {
+      checkoutLockRef.current = false;
     }
   };
 
@@ -241,6 +262,7 @@ const KioskPage = () => {
     setSearchQuery("");
     setSelectedMods({});
     setIsProcessing(false);
+    checkoutLockRef.current = false;
   };
 
   const FloatingCartButton = () => {
@@ -567,11 +589,11 @@ const KioskPage = () => {
       <div className="min-h-screen bg-background flex flex-col">
         <header className="sticky top-0 z-40 bg-background/95 backdrop-blur-sm border-b border-border">
           <div className="flex items-center justify-between px-6 py-3">
-            <button onClick={() => setStep("categories")} className="flex items-center gap-2 text-sm font-sans font-semibold text-muted-foreground hover:text-foreground active:scale-95 transition-all">
+            <button onClick={() => setStep("categories")} disabled={isProcessing} className="flex items-center gap-2 text-sm font-sans font-semibold text-muted-foreground hover:text-foreground active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
               <ArrowLeft className="w-4 h-4" /> Continue Shopping
             </button>
             <p className="font-serif text-lg font-medium text-foreground">Your Order</p>
-            <button onClick={resetOrder} className="text-xs font-sans font-semibold text-destructive hover:underline">Cancel Order</button>
+            <button onClick={resetOrder} disabled={isProcessing} className="text-xs font-sans font-semibold text-destructive hover:underline disabled:opacity-50 disabled:cursor-not-allowed">Cancel Order</button>
           </div>
         </header>
         <main className="flex-1 p-6 animate-fade-up opacity-0">
@@ -764,9 +786,19 @@ const KioskPage = () => {
                           <button
                             type="button"
                             onClick={async () => {
-                              await saveKioskOrder("cash");
-                              toast.success("Order placed! Please pay at the counter.", { duration: 1000 });
-                              resetOrder();
+                              if (checkoutLockRef.current) return;
+                              checkoutLockRef.current = true;
+                              setIsProcessing(true);
+                              try {
+                                await saveKioskOrder("cash");
+                                toast.success("Order placed! Please pay at the counter.", { duration: 1000 });
+                                resetOrder();
+                              } catch (e) {
+                                toast.error(e instanceof Error ? e.message : "Failed to place order");
+                              } finally {
+                                setIsProcessing(false);
+                                checkoutLockRef.current = false;
+                              }
                             }}
                             disabled={isProcessing || !firstName.trim()}
                             className="min-h-[56px] py-4 bg-primary text-primary-foreground font-sans font-bold text-base uppercase tracking-wider rounded-sm flex items-center justify-center gap-2 hover:opacity-90 active:scale-[0.97] transition-all shadow-lg shadow-primary/20 disabled:opacity-50 disabled:cursor-not-allowed"

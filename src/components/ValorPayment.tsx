@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { CreditCard, Loader2, CheckCircle, XCircle, Wifi, WifiOff } from "lucide-react";
 import { sendCreditSale, dollarsToCents, isValorConfigured, ValorSuccessResponse } from "@/lib/valor";
 
@@ -29,8 +29,11 @@ const ValorPayment = ({
   const [error, setError] = useState("");
   const [response, setResponse] = useState<ValorSuccessResponse | null>(null);
   const configured = isValorConfigured();
+  const paymentLockRef = useRef(false);
 
   const handlePayment = async () => {
+    if (paymentLockRef.current) return;
+    paymentLockRef.current = true;
     setState("processing");
     setError("");
 
@@ -55,6 +58,8 @@ const ValorPayment = ({
     } catch (err: any) {
       setError(err.message || "Payment failed");
       setState("error");
+    } finally {
+      paymentLockRef.current = false;
     }
   };
 
