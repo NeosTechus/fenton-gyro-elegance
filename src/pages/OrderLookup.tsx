@@ -29,6 +29,7 @@ const STATUS_BADGE: Record<OrderStatus, { bg: string; text: string }> = {
   ready: { bg: "bg-emerald-100", text: "text-emerald-700" },
   completed: { bg: "bg-primary/10", text: "text-primary" },
   cancelled: { bg: "bg-red-100", text: "text-red-700" },
+  expired: { bg: "bg-gray-100", text: "text-gray-600" },
 };
 
 const OrderLookup = () => {
@@ -191,7 +192,10 @@ const OrderLookup = () => {
                     {orders.length} order{orders.length !== 1 ? "s" : ""} found
                   </p>
                   {orders.map((order) => {
-                    const badge = STATUS_BADGE[order.status];
+                    // Fallback guards against any unknown/future status (e.g.
+                    // 'expired') so a single odd order can't throw and crash the
+                    // whole lookup view via the app error boundary.
+                    const badge = STATUS_BADGE[order.status] ?? { bg: "bg-gray-100", text: "text-gray-600" };
                     return (
                       <Link
                         key={order.id}

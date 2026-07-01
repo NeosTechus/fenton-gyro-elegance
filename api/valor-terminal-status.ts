@@ -4,10 +4,10 @@ import {
   isAllowedOrigin,
   setCors,
   isEpi,
-  isAppKey,
   isReqTxnId,
   errorResponse,
 } from "./_lib/security.js";
+import { resolveAppKeyForEpi } from "./_lib/idempotency.js";
 
 /**
  * POST /api/valor-terminal-status
@@ -29,10 +29,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   if (!VALOR_API_URL || !VALOR_APPID) return errorResponse(res, 500, "Service unavailable");
 
-  const { epi, appkey, reqTxnId } = req.body || {};
+  // appKey is resolved server-side from the EPI allow-list; never read from body.
+  const { epi, reqTxnId } = req.body || {};
 
   if (!isEpi(epi)) return errorResponse(res, 400, "Invalid epi");
-  if (!isAppKey(appkey)) return errorResponse(res, 400, "Invalid appkey");
+  const appkey = resolveAppKeyForEpi(epi);
+  if (!appkey) return errorResponse(res, 403, "Unknown terminal");
   if (!isReqTxnId(reqTxnId) && !/^PING\d+$/.test(String(reqTxnId))) return errorResponse(res, 400, "Invalid reqTxnId");
 
   try {

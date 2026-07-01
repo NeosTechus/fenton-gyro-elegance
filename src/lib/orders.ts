@@ -8,7 +8,9 @@ import {
   collection,
   addDoc,
   updateDoc,
+  setDoc,
   doc,
+  getDoc,
   query,
   orderBy,
   onSnapshot,
@@ -85,12 +87,40 @@ export async function updateOrderStatus(
 
 // ── Update Prep Time ─────────────────────────────────────────────────────
 
+// Order statuses that are "ahead of" received — once the chef has advanced an
+// order we must not drag its status back to "received" when collecting payment.
+const ADVANCED_STATUSES: OrderStatus[] = ["preparing", "ready", "completed"];
+
 export async function markOrderPaid(orderId: string): Promise<void> {
   if (!isFirebaseConfigured || !db) return;
-  await updateDoc(doc(db, "orders", orderId), {
-    payment_status: "paid",
-    status: "received",
-  });
+  const ref = doc(db, "orders", orderId);
+
+  // Read first so this is idempotent and non-clobbering:
+  //  - if already paid, do nothing (a retry / second tap must not re-write);
+  //  - only advance status pending/received -> received, never drag a status
+  //    the chef already moved forward back to "received".
+  const snap = await getDoc(ref);
+  if (!snap.exists()) {
+    // Doc not visible on this server read — use setDoc(merge) NOT updateDoc:
+    // updateDoc carries an exists() precondition and would throw not-found,
+    // dropping the payment. setDoc(merge) creates-or-merges so the payment
+    // still records.
+    await setDoc(ref, { payment_status: "paid" }, { merge: true });
+    return;
+  }
+  const data = snap.data() || {};
+  if (data.payment_status === "paid") return; // idempotent — already collected
+  // Never flip a cancelled/voided order to paid — that would record a charge on
+  // an order the customer/staff cancelled (a late card capture racing a cancel
+  // must be voided, not booked as paid).
+  if (data.status === "cancelled" || data.payment_status === "voided") return;
+
+  const update: Record<string, unknown> = { payment_status: "paid" };
+  const currentStatus = data.status as OrderStatus | undefined;
+  if (!currentStatus || !ADVANCED_STATUSES.includes(currentStatus)) {
+    update.status = "received";
+  }
+  await updateDoc(ref, update);
 }
 
 /**
@@ -187,6 +217,14 @@ export function subscribeToOrders(
     },
     (error) => {
       console.error("Order subscription error:", error);
+      // Do NOT fall back to demo data on a permission-denied error — that would
+      // show fabricated orders to a non-staff session that slipped onto a staff
+      // screen. Surface an empty list instead; mock data is only for the
+      // unconfigured-Firebase case handled above.
+      if ((error as { code?: string })?.code === "permission-denied") {
+        callback([]);
+        return;
+      }
       callback(mockOrders);
     }
   );

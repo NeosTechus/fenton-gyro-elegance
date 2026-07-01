@@ -2,7 +2,8 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 
 /**
  * Shared security helpers for Vercel API routes.
- * — Simple in-memory rate limiting (per serverless instance)
+ * — In-memory rate limiting (per serverless instance, best-effort)
+ * — Durable Firestore-backed rate limiting (authoritative, for money routes)
  * — Origin validation (basic CSRF protection)
  * — Input validation helpers
  */
@@ -25,6 +26,14 @@ function getClientKey(req: VercelRequest): string {
 
 /**
  * Returns true if the request is within rate limits.
+ *
+ * NON-AUTHORITATIVE: backed by a module-level in-memory Map that is scoped to a
+ * single serverless instance. Under Vercel's autoscaling each concurrent
+ * instance keeps its own counter, so a determined caller spread across instances
+ * can exceed `limit`. This is a cheap best-effort first line of defence only.
+ * For money routes (anything that can move funds or mint orders) ALSO gate on
+ * the durable, cross-instance {@link rateLimitDurable} below.
+ *
  * limit = max requests per windowMs milliseconds.
  */
 export function rateLimit(req: VercelRequest, limit: number, windowMs: number): boolean {
@@ -45,6 +54,64 @@ export function rateLimit(req: VercelRequest, limit: number, windowMs: number): 
   }
 
   return true;
+}
+
+/**
+ * Durable, cross-instance rate limit backed by Firestore. Use this on money
+ * routes where the per-instance {@link rateLimit} Map is insufficient because
+ * Vercel runs many concurrent instances that don't share memory.
+ *
+ * Keyed by ip+route and a fixed time window. Each request atomically increments
+ * a counter inside a transaction; if the stored window has expired the counter
+ * is reset. Returns true if the request is allowed.
+ *
+ * Fails OPEN: if Firestore is unreachable we return true so a transient storage
+ * outage doesn't take checkout offline. The in-memory `rateLimit` still applies
+ * as a backstop, and Valor itself is the final authority on charges.
+ */
+export async function rateLimitDurable(
+  req: VercelRequest,
+  limit: number,
+  windowMs: number,
+): Promise<boolean> {
+  // Lazy import so routes that never call this don't pull in firebase-admin
+  // (and so this module stays usable in contexts without admin creds).
+  let adminDb: import("firebase-admin/firestore").Firestore;
+  try {
+    ({ adminDb } = await import("./firebase-admin.js"));
+  } catch (err) {
+    console.error("[rateLimitDurable] firebase-admin unavailable, failing open", err);
+    return true;
+  }
+
+  const route = (req.url || "unknown").split("?")[0];
+  // Sanitize ip+route into a safe Firestore doc id.
+  const docId = `${getClientKey(req)}:${route}`.replace(/[^A-Za-z0-9_.:-]/g, "_").slice(0, 256);
+  const ref = adminDb.collection("rate_limits").doc(docId);
+  const now = Date.now();
+
+  try {
+    const allowed = await adminDb.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      const data = snap.exists ? snap.data() || {} : {};
+      const resetAt = typeof data.resetAt === "number" ? data.resetAt : 0;
+
+      if (!snap.exists || resetAt < now) {
+        tx.set(ref, { count: 1, resetAt: now + windowMs });
+        return true;
+      }
+
+      const count = typeof data.count === "number" ? data.count : 0;
+      if (count >= limit) return false;
+
+      tx.update(ref, { count: count + 1 });
+      return true;
+    });
+    return allowed;
+  } catch (err) {
+    console.error("[rateLimitDurable] transaction failed, failing open", err);
+    return true;
+  }
 }
 
 // ── Origin validation ────────────────────────────────────────────────────

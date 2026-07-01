@@ -19,7 +19,6 @@ import {
   getEPIs,
   addEPI,
   removeEPI,
-  updateEPI,
   refreshAllStatuses,
   resetToDefaults,
 } from "@/lib/valor-epi";
@@ -33,7 +32,6 @@ const SettingsPage = () => {
   // New EPI form
   const [newLabel, setNewLabel] = useState("");
   const [newId, setNewId] = useState("");
-  const [newAppKey, setNewAppKey] = useState("");
 
   useEffect(() => {
     setEpis(getEPIs());
@@ -51,15 +49,17 @@ const SettingsPage = () => {
   if (role !== "admin") return <Navigate to="/" replace />;
 
   const handleAdd = () => {
-    if (!newLabel.trim() || !newId.trim() || !newAppKey.trim()) {
+    if (!newLabel.trim() || !newId.trim()) {
       toast.error("Fill in all fields");
       return;
     }
-    const updated = addEPI({ id: newId.trim(), label: newLabel.trim(), wsUrl: "", appKey: newAppKey.trim() });
+    // The terminal's secret APP KEY is NOT entered here — it lives server-side
+    // in the VALOR_TERMINAL_KEYS env allow-list (keyed by EPI). The client only
+    // stores the non-secret label + EPI.
+    const updated = addEPI({ id: newId.trim(), label: newLabel.trim(), wsUrl: "" });
     setEpis(updated);
     setNewLabel("");
     setNewId("");
-    setNewAppKey("");
     toast.success("Terminal added");
   };
 
@@ -175,18 +175,9 @@ const SettingsPage = () => {
                         {epi.online ? "Online" : "Offline"}
                       </span>
                     </div>
-                    <input
-                      type="text"
-                      value={epi.appKey || ""}
-                      onChange={(e) => {
-                        const updated = updateEPI(epi.id, { appKey: e.target.value });
-                        setEpis(updated);
-                      }}
-                      placeholder="APP KEY (32 chars)"
-                      className="w-full mt-1.5 px-2 py-1 bg-background border border-border rounded-sm text-xs font-mono text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-accent/50"
-                    />
-                    <p className="text-[10px] text-muted-foreground/60 mt-1 font-mono">
-                      Terminal connects via Valor Connect cloud (Channel ID in env)
+                    <p className="text-[10px] text-muted-foreground/60 mt-1.5 font-mono">
+                      APP KEY held server-side (VALOR_TERMINAL_KEYS env, keyed by EPI).
+                      Terminal connects via Valor Connect cloud (Channel ID in env).
                     </p>
                   </div>
                   <button
@@ -206,7 +197,7 @@ const SettingsPage = () => {
               <Plus className="w-4 h-4 text-accent" />
               Add Terminal
             </h3>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
               <input
                 type="text"
                 placeholder="Label (e.g. Front Counter)"
@@ -221,14 +212,11 @@ const SettingsPage = () => {
                 onChange={(e) => setNewId(e.target.value)}
                 className="px-3 py-2.5 bg-background border border-border rounded-sm text-sm font-sans text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-accent/50"
               />
-              <input
-                type="text"
-                placeholder="APP KEY (32 chars)"
-                value={newAppKey}
-                onChange={(e) => setNewAppKey(e.target.value)}
-                className="px-3 py-2.5 bg-background border border-border rounded-sm text-sm font-sans text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-accent/50"
-              />
             </div>
+            <p className="text-[11px] text-muted-foreground/70 mb-3">
+              The terminal's secret APP KEY is added server-side to the
+              <span className="font-mono"> VALOR_TERMINAL_KEYS</span> env var (keyed by EPI), never here.
+            </p>
             <button
               onClick={handleAdd}
               className="px-4 py-2.5 bg-accent text-accent-foreground font-sans font-semibold text-xs uppercase tracking-wider rounded-sm hover:opacity-90 active:scale-[0.97] transition-all"

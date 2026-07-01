@@ -27,6 +27,7 @@ const STATUS_BADGE: Record<OrderStatus, { bg: string; text: string; label: strin
   ready: { bg: "bg-emerald-100", text: "text-emerald-700", label: "Ready" },
   completed: { bg: "bg-emerald-100", text: "text-emerald-800", label: "Completed" },
   cancelled: { bg: "bg-red-100", text: "text-red-700", label: "Cancelled" },
+  expired: { bg: "bg-gray-100", text: "text-gray-600", label: "Expired" },
 };
 
 const COUNTER_STYLES: { status: OrderStatus; color: string }[] = [

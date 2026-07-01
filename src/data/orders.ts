@@ -1,4 +1,4 @@
-export type OrderStatus = "pending" | "received" | "preparing" | "ready" | "completed" | "cancelled";
+export type OrderStatus = "pending" | "received" | "preparing" | "ready" | "completed" | "cancelled" | "expired";
 export type OrderSource = "pos" | "kiosk" | "web";
 export type OrderPayment = "card" | "cash";
 export type PaymentStatus = "paid" | "unpaid";

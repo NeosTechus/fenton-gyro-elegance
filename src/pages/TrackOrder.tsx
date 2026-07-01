@@ -113,9 +113,13 @@ const TrackOrder = () => {
             created_at: createdAt,
             source: data.source,
             payment: data.payment,
+            // Raw field (may be 'voided', which the typed union omits) so the
+            // cancelled banner can distinguish a refund from a never-charged
+            // rejection.
+            payment_status: data.payment_status,
             rrn: data.rrn,
             auth_code: data.auth_code,
-          } as Order & { rrn?: string; auth_code?: string });
+          } as Order & { rrn?: string; auth_code?: string; payment_status?: string });
           setNotFound(false);
         } else {
           setNotFound(true);
@@ -178,9 +182,13 @@ const TrackOrder = () => {
         return;
       }
 
-      // Payment was captured — must successfully void before flipping status,
-      // otherwise we'd tell the customer their refund is processing while the
-      // charge stays on their card.
+      // Payment was captured — the server is authoritative. /api/valor-void
+      // verifies ownership against Firestore, voids with the STORED Valor
+      // refs (not these client values, which it only cross-checks), and on
+      // success atomically flips payment_status:'voided' + status:'cancelled'
+      // itself. We therefore do NOT issue a separate updateOrderStatus write
+      // here — that previously left payment_status:'paid' diverging from the
+      // server. The realtime listener picks up the server's cancellation.
       let voided = false;
       try {
         const res = await fetch("/api/valor-void", {
@@ -190,26 +198,41 @@ const TrackOrder = () => {
             orderId,
             rrn: orderWithRefs.rrn,
             authCode: orderWithRefs.auth_code,
-            amount: order.total.toFixed(2),
           }),
         });
-        let body: { ok?: boolean; message?: string; code?: string } | null = null;
+        let body:
+          | { ok?: boolean; voided?: boolean; cancelled?: boolean; message?: string; code?: string }
+          | null = null;
         try {
-          body = (await res.json()) as { ok?: boolean; message?: string; code?: string };
+          body = (await res.json()) as typeof body;
         } catch {
           body = null;
         }
         voided = res.ok && body?.ok === true;
         if (!voided) {
           console.warn("Valor void failed:", { status: res.status, body });
+        } else if (body?.cancelled !== true) {
+          // The charge WAS voided at Valor, but the server could not sync the
+          // order to cancelled (Firestore write failed). The order may still
+          // look active to the kitchen, so do NOT claim a clean cancellation —
+          // tell the customer their refund is processing and to call us so the
+          // recorded void_sync_failed orphan can be reconciled.
+          console.warn("Valor void succeeded but order sync failed:", { status: res.status, body });
+          toast.error(
+            "Your refund is processing, but the order may still be active — please call (636) 600-1333 to confirm.",
+            { duration: 12000 },
+          );
+          setCancelling(false);
+          return;
         }
       } catch (err) {
         console.warn("Valor void network error:", err);
       }
 
       if (!voided) {
-        // Do NOT cancel the order — the charge is still on the customer's
-        // card. Leave status untouched and surface a clear error.
+        // Do NOT treat this as cancelled — the charge may still be on the
+        // customer's card. Surface a clear error; the server left status
+        // untouched.
         toast.error(
           "Couldn't void payment automatically. Please call (636) 600-1333 — your order is still active.",
         );
@@ -217,7 +240,7 @@ const TrackOrder = () => {
         return;
       }
 
-      await updateOrderStatus(orderId, "cancelled");
+      // Server confirmed voided AND cancelled (payment_status:'voided').
       toast.success("Order cancelled. Your refund is on its way.");
     } catch {
       toast.error("Failed to cancel order. Please call (636) 600-1333.");
@@ -279,16 +302,30 @@ const TrackOrder = () => {
 
               {/* Current Status Banner */}
               {isCancelled ? (
-                <div className="bg-red-50 border-2 border-red-200 rounded-sm p-6 text-center mb-8">
-                  <XCircle className="w-12 h-12 text-red-500 mx-auto mb-3" />
-                  <h2 className="font-serif text-xl font-medium text-red-900 mb-1">Order Rejected</h2>
-                  <p className="text-red-700 text-sm">
-                    Sorry, the restaurant was unable to accept this order. You have not been charged.
-                  </p>
-                  <p className="text-red-600 text-xs mt-3">
-                    Please call <a href="tel:6366001333" className="underline font-semibold">(636) 600-1333</a> if you have questions.
-                  </p>
-                </div>
+                (() => {
+                  // A cancelled order that WAS charged (voided refund, or still
+                  // shows paid with a Valor ref) must not claim "not charged".
+                  const ps = (order as { payment_status?: string }).payment_status;
+                  const wasCharged =
+                    ps === "voided" ||
+                    (ps === "paid" && Boolean((order as { rrn?: string }).rrn || (order as { auth_code?: string }).auth_code));
+                  return (
+                    <div className="bg-red-50 border-2 border-red-200 rounded-sm p-6 text-center mb-8">
+                      <XCircle className="w-12 h-12 text-red-500 mx-auto mb-3" />
+                      <h2 className="font-serif text-xl font-medium text-red-900 mb-1">
+                        {wasCharged ? "Order Cancelled" : "Order Rejected"}
+                      </h2>
+                      <p className="text-red-700 text-sm">
+                        {wasCharged
+                          ? "Your order was cancelled and a refund has been issued. It may take a few business days to appear on your statement."
+                          : "Sorry, the restaurant was unable to accept this order. You have not been charged."}
+                      </p>
+                      <p className="text-red-600 text-xs mt-3">
+                        Please call <a href="tel:6366001333" className="underline font-semibold">(636) 600-1333</a> if you have questions.
+                      </p>
+                    </div>
+                  );
+                })()
               ) : order.status === "pending" ? (
                 <div className="bg-amber-50 border-2 border-amber-200 rounded-sm p-6 text-center mb-8">
                   <Clock className="w-12 h-12 text-amber-500 mx-auto mb-3 animate-pulse" />

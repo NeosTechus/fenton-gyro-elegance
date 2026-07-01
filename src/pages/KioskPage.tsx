@@ -17,7 +17,15 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { menuItems, categories, MenuItem } from "@/data/menu";
-import { sendCreditSale, dollarsToCents, warmupValor } from "@/lib/valor";
+import {
+  sendCreditSale,
+  dollarsToCents,
+  warmupValor,
+  newReqTxnId,
+  checkValorTxnStatus,
+  ValorTimeoutError,
+  ValorDeclinedError,
+} from "@/lib/valor";
 import { computeTotals } from "@/lib/pricing";
 import { ValorEPI, getEPIs } from "@/lib/valor-epi";
 import { createOrder } from "@/lib/orders";
@@ -55,6 +63,12 @@ const KioskPage = () => {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const checkoutLockRef = useRef(false);
+  // ONE stable reqTxnId per sale + the order it belongs to, reused across
+  // retries so the server idempotency guard prevents a double charge if a prior
+  // attempt actually captured (mirrors the POS contract). Cleared only on
+  // success / reset, never on a generic failure.
+  const checkoutReqTxnIdRef = useRef<string | null>(null);
+  const kioskOrderIdRef = useRef<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedMods, setSelectedMods] = useState<Record<string, string[]>>({});
   const [epis] = useState<ValorEPI[]>(() => getEPIs());
@@ -65,7 +79,6 @@ const KioskPage = () => {
   });
   const selectedTerminal = epis.find((e) => e.id === selectedEpiId);
   const selectedEpi = selectedTerminal?.id || "";
-  const selectedAppKey = selectedTerminal?.appKey || "";
 
   const assignTerminal = (epiId: string) => {
     setSelectedEpiId(epiId);
@@ -78,10 +91,10 @@ const KioskPage = () => {
   // Warm Valor lambdas as soon as a cart exists, so the first real publish
   // on the checkout screen doesn't pay a Vercel cold-start delay.
   useEffect(() => {
-    if (step === "cart" && selectedEpi && selectedAppKey) {
-      warmupValor(selectedEpi, selectedAppKey);
+    if (step === "cart" && selectedEpi) {
+      warmupValor(selectedEpi);
     }
-  }, [step, selectedEpi, selectedAppKey]);
+  }, [step, selectedEpi]);
 
   // ── Inactivity timeout: reset to welcome after 2 min of no touch ──
   const inactivityTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -190,32 +203,45 @@ const KioskPage = () => {
     if (checkoutLockRef.current) return;
     checkoutLockRef.current = true;
     setIsProcessing(true);
-    let orderId: string | null = null;
+    // Mint ONE stable reqTxnId for this sale; reuse on every retry. If it was
+    // already set by a prior attempt, this is a RETRY — pre-check the terminal
+    // before charging again.
+    const isRetry = !!checkoutReqTxnIdRef.current;
+    if (!checkoutReqTxnIdRef.current) checkoutReqTxnIdRef.current = newReqTxnId();
+    const reqTxnId = checkoutReqTxnIdRef.current;
     try {
-      // Create an unpaid order FIRST so a successful card charge always
-      // has a Firestore doc to attach to — even if the post-payment save fails.
+      // Create an unpaid order FIRST so a successful card charge always has a
+      // Firestore doc to attach to — and REUSE it across retries instead of
+      // minting a duplicate unpaid order each attempt.
       const { total: totalWithTax } = computeTotals(totalPrice, "cash");
-      orderId = await createOrder({
-        customer_name: `${firstName.trim()} ${lastName.trim()}`.trim() || (orderType === "dine-in" ? "Dine-In Customer" : "Take-Out Customer"),
-        customer_email: customerEmail.trim(),
-        customer_phone: customerPhone.trim(),
-        items: buildOrderItems(),
-        total: computeTotals(totalPrice, "card").total,
-        order_type: orderType || "dine-in",
-        notes: `Kiosk ${orderType} order`,
-        source: "kiosk",
-        payment: "card",
-        payment_status: "unpaid",
-        terminal_epi: selectedEpi || undefined,
-      });
+      let orderId = kioskOrderIdRef.current;
+      if (!orderId) {
+        orderId = await createOrder({
+          customer_name: `${firstName.trim()} ${lastName.trim()}`.trim() || (orderType === "dine-in" ? "Dine-In Customer" : "Take-Out Customer"),
+          customer_email: customerEmail.trim(),
+          customer_phone: customerPhone.trim(),
+          items: buildOrderItems(),
+          total: computeTotals(totalPrice, "card").total,
+          order_type: orderType || "dine-in",
+          notes: `Kiosk ${orderType} order`,
+          source: "kiosk",
+          payment: "card",
+          payment_status: "unpaid",
+          terminal_epi: selectedEpi || undefined,
+        });
+        kioskOrderIdRef.current = orderId;
+      }
 
-      const result = await sendCreditSale({
+      // Pre-retry gate: if a prior attempt's reqTxnId already captured on the
+      // terminal, surface that instead of charging the card again.
+      const existing = isRetry ? await checkValorTxnStatus(selectedEpi, reqTxnId) : null;
+      const result = existing ?? await sendCreditSale({
         amountCents: dollarsToCents(totalWithTax),
         tipEnabled: false,
         printReceipt: true,
         invoiceNumber: orderId,
         epi: selectedEpi,
-        appkey: selectedAppKey,
+        reqTxnId,
       });
 
       const tenderedCash = /cash/i.test(String(result.TRAN_TYPE || "")) || !result.MASKED_PAN;
@@ -235,13 +261,21 @@ const KioskPage = () => {
       resetOrder();
     } catch (error) {
       console.error("Kiosk checkout error:", error);
-      if (orderId) {
-        // Order was created but payment failed — it stays as "unpaid" in
-        // the pending payments queue so staff can see it
-        toast.error("Payment failed — please try again or ask staff for help", { duration: 5000 });
-      } else {
-        toast.error(error instanceof Error ? error.message : "Payment failed");
+      if (error instanceof ValorTimeoutError) {
+        // The card MAY have captured. Do NOT clear the reqTxnId or the order —
+        // a re-tap reuses the same id and is de-duped server-side (or the
+        // pre-check surfaces the capture). Guide the customer to staff.
+        toast.error("This is taking longer than usual — please ask a staff member for help before trying again.", { duration: 8000 });
+        setIsProcessing(false);
+        return;
       }
+      if (error instanceof ValorDeclinedError) {
+        // Definite decline, nothing captured — mint a fresh id for a clean
+        // retry against the same (still unpaid) order.
+        checkoutReqTxnIdRef.current = null;
+      }
+      // Order stays unpaid in the pending queue for staff; a retry reuses it.
+      toast.error("Payment failed — please try again or ask staff for help", { duration: 5000 });
       setIsProcessing(false);
     } finally {
       checkoutLockRef.current = false;
@@ -263,6 +297,8 @@ const KioskPage = () => {
     setSelectedMods({});
     setIsProcessing(false);
     checkoutLockRef.current = false;
+    checkoutReqTxnIdRef.current = null;
+    kioskOrderIdRef.current = null;
   };
 
   const FloatingCartButton = () => {
@@ -825,7 +861,7 @@ const KioskPage = () => {
 };
 
 const KioskPageWithAuth = () => {
-  const { user, loading } = useAuth();
+  const { user, role, loading } = useAuth();
 
   if (loading) {
     return (
@@ -835,7 +871,8 @@ const KioskPageWithAuth = () => {
     );
   }
 
-  if (!user) {
+  // Staff-only: a bare authenticated customer must NOT get the kiosk console.
+  if (!user || (role !== "staff" && role !== "admin")) {
     return <Navigate to="/auth?redirect=/kiosk" replace />;
   }
 

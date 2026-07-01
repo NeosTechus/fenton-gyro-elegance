@@ -14,6 +14,7 @@ const STATUS_STYLES: Record<OrderStatus, string> = {
   ready: "bg-green-100 text-green-700",
   completed: "bg-emerald-100 text-emerald-800",
   cancelled: "bg-gray-100 text-gray-600",
+  expired: "bg-gray-100 text-gray-500",
 };
 
 const STATUS_ICONS: Record<OrderStatus, string> = {
@@ -23,6 +24,7 @@ const STATUS_ICONS: Record<OrderStatus, string> = {
   ready: "✅",
   completed: "✓",
   cancelled: "✕",
+  expired: "⌛",
 };
 
 const PREP_OPTIONS = [10, 15, 20, 30, 45, 60];

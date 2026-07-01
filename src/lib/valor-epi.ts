@@ -15,27 +15,28 @@ export interface ValorEPI {
 
 const STORAGE_KEY = "valor_epis";
 
-// Pre-configured Fenton Gyro terminals (Valor production credentials)
+// Pre-configured Fenton Gyro terminals. Only the non-secret EPI (device id) +
+// label live in the client bundle. The terminal's secret APP KEY is held
+// SERVER-SIDE in the VALOR_TERMINAL_KEYS env allow-list (keyed by EPI) and is
+// resolved by the /api/valor-terminal-* endpoints — it must never ship to the
+// browser.
 const DEFAULT_EPIS: ValorEPI[] = [
   {
     id: "2501439074",
     label: "VP550E #1",
     wsUrl: "",
-    appKey: "9Ylv%RiKeQi7Cge$qL6zsNr4EOK8P84B",
     online: false,
   },
   {
     id: "2501439077",
     label: "VP550E #2",
     wsUrl: "",
-    appKey: "MJQw6u0KCN6SxjvybMYi5jBdo1D@xDW7",
     online: false,
   },
   {
     id: "2501439078",
     label: "VP550E #3",
     wsUrl: "",
-    appKey: "WtTsq9lXlEZ5ji4tw1DJPKFjAasSioY3",
     online: false,
   },
 ];
@@ -92,13 +93,14 @@ export function updateEPI(id: string, updates: Partial<ValorEPI>): ValorEPI[] {
  * Sends a harmless status ping (vc_status with a dummy req_txn_id) and
  * infers reachability from the response.
  */
-export async function checkDeviceStatus(epi: string, appkey: string): Promise<boolean> {
-  if (!epi || !appkey) return false;
+export async function checkDeviceStatus(epi: string): Promise<boolean> {
+  if (!epi) return false;
   try {
     const res = await fetch("/api/valor-terminal-status", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ epi, appkey, reqTxnId: `PING${Date.now()}` }),
+      // appKey is resolved server-side from the EPI allow-list — never sent.
+      body: JSON.stringify({ epi, reqTxnId: `PING${Date.now()}` }),
       signal: AbortSignal.timeout(8000),
     });
     const data = await res.json();
@@ -117,7 +119,7 @@ export async function refreshAllStatuses(): Promise<ValorEPI[]> {
   const results = await Promise.all(
     epis.map(async (epi) => ({
       ...epi,
-      online: await checkDeviceStatus(epi.id, epi.appKey || ""),
+      online: await checkDeviceStatus(epi.id),
     }))
   );
   saveEPIs(results);

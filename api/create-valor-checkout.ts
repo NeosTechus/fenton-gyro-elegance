@@ -1,5 +1,17 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { rateLimit, isAllowedOrigin, setCors, errorResponse } from "./_lib/security.js";
+import { adminDb } from "./_lib/firebase-admin.js";
+import { cardBreakdownFromTotal } from "./_lib/pricing.js";
+
+// Strip "-NNNNNN" 6-digit timestamp suffix that we append to invoice_no below
+// to keep each Valor session unique. The real Firestore order id is everything
+// before that suffix. (Mirrors stripInvoiceSuffix in valor-webhook.ts.)
+function stripInvoiceSuffix(raw: string): string {
+  if (/-[0-9]{6}$/.test(raw)) {
+    return raw.slice(0, raw.lastIndexOf("-"));
+  }
+  return raw;
+}
 
 /**
  * POST /api/create-valor-checkout
@@ -52,13 +64,76 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       redirectUrl,
     } = req.body;
 
-    if (!amount || !redirectUrl) {
-      return res.status(400).json({ error: "amount and redirectUrl are required" });
+    if (!redirectUrl) {
+      return res.status(400).json({ error: "redirectUrl is required" });
     }
 
-    // Validate amount format (must be a positive number with up to 2 decimal places)
-    if (!/^\d+(\.\d{1,2})?$/.test(amount) || parseFloat(amount) <= 0 || parseFloat(amount) > 10000) {
-      return res.status(400).json({ error: "Invalid amount" });
+    // invoiceNumber IS the Firestore order id — required so we can load the
+    // order and recompute the charge server-side. The browser is never trusted
+    // to dictate the amount.
+    if (typeof invoiceNumber !== "string" || invoiceNumber.length < 4 || invoiceNumber.length > 64) {
+      return res.status(400).json({ error: "invoiceNumber (orderId) is required" });
+    }
+
+    // ── Server-authoritative amount ──────────────────────────────────────
+    // Load the stored order and recompute the exact card breakdown from its
+    // persisted total. We send ONLY these server-derived money values to
+    // Valor; any amount/tax/surcharge the browser supplied is advisory and is
+    // rejected if it disagrees by more than a cent.
+    const orderId = stripInvoiceSuffix(invoiceNumber);
+    const orderSnap = await adminDb.collection("orders").doc(orderId).get();
+    if (!orderSnap.exists) {
+      return res.status(404).json({ error: "Order not found" });
+    }
+    const orderData = orderSnap.data() || {};
+
+    // Never start a fresh hosted-payment session for an order that is already
+    // settled. The browser's stale "already submitted this cart" guard
+    // (sessionStorage) can resolve a repeat identical order to a PAID order id;
+    // without this the customer would be charged a second time against one paid
+    // order doc. Reject paid/voided/cancelled orders so a genuine reorder is
+    // forced to create a new order.
+    if (
+      orderData.payment_status === "paid" ||
+      orderData.payment_status === "voided" ||
+      orderData.status === "cancelled"
+    ) {
+      return res.status(409).json({ error: "Order is already completed" });
+    }
+    const storedTotal = typeof orderData.total === "number" ? orderData.total : NaN;
+
+    const breakdown = cardBreakdownFromTotal(storedTotal);
+    if (!breakdown) {
+      console.error("[epage] could not derive card breakdown from order total", {
+        orderId,
+        storedTotal: orderData.total,
+      });
+      return res.status(400).json({ error: "Order total is invalid for card checkout" });
+    }
+
+    // Valor ePage is sent the PRE-surcharge amount (= subtotal) plus tax and
+    // surcharge as separate fields; it re-applies the surcharge itself via
+    // surchargeIndicator=1. These are the values the customer is actually
+    // charged — derived from the stored order, not the request body.
+    const serverAmount = breakdown.subtotal.toFixed(2);
+    const serverTax = breakdown.tax.toFixed(2);
+    const serverSurcharge = breakdown.surcharge.toFixed(2);
+
+    // If the browser supplied money values, reject when they disagree by more
+    // than a cent — a sign of tampering or a stale client. We still only ever
+    // send the server-derived figures to Valor.
+    const within1Cent = (a: unknown, b: number) => {
+      const n = parseFloat(String(a));
+      return Number.isFinite(n) && Math.abs(n - b) <= 0.01;
+    };
+    if (amount !== undefined && !within1Cent(amount, breakdown.subtotal)) {
+      return res.status(400).json({ error: "Amount mismatch" });
+    }
+    if (tax !== undefined && !within1Cent(tax, breakdown.tax)) {
+      return res.status(400).json({ error: "Tax mismatch" });
+    }
+    if (surcharge !== undefined && !within1Cent(surcharge, breakdown.surcharge)) {
+      return res.status(400).json({ error: "Surcharge mismatch" });
     }
 
     // Validate redirectUrl is from our domain
@@ -74,20 +149,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Sanitize text inputs
     const sanitize = (str: string | undefined) => str ? str.replace(/[<>]/g, "").slice(0, 200) : "";
 
-    const orderId = `WEB-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-
     // Build ePage request — matches Valor SDK epage_api_v2.php exactly
     const formParams = new URLSearchParams();
     formParams.append("appid", appId);
     formParams.append("appkey", appKey);
     formParams.append("txn_type", "sale");
-    formParams.append("amount", amount);
-    formParams.append("tax", tax || "0.00");
+    // Server-recomputed values only — never the client-supplied amount.
+    formParams.append("amount", serverAmount);
+    formParams.append("tax", serverTax);
     // Explicit surcharge amount — Valor ePage won't compute this even with
-    // surchargeIndicator=1. We send the exact $ value we showed the
-    // customer in the UI so the total on the hosted page matches.
-    const safeSurcharge = /^\d+(\.\d{1,2})?$/.test(String(surcharge ?? "")) ? String(surcharge) : "0.00";
-    formParams.append("surcharge", safeSurcharge);
+    // surchargeIndicator=1. We send the exact server-derived $ value so the
+    // total on the hosted page matches what the customer agreed to.
+    formParams.append("surcharge", serverSurcharge);
     // Required by Valor — "EPI host processor info not found" is returned when
     // the merchant is configured for surcharging but this flag is omitted.
     // https://valorapi.readme.io/reference/troubleshooting
@@ -103,7 +176,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Append a short timestamp suffix so every attempt is unique on Valor's
     // side — prevents E22 EPAGE URL GENERATION FAILED when a customer
     // retries checkout while a previous session is still open.
-    const baseInvoice = sanitize(invoiceNumber) || orderId;
+    const baseInvoice = sanitize(orderId);
     const uniqueInvoice = `${baseInvoice}-${Date.now().toString().slice(-6)}`;
     formParams.append("invoice_no", uniqueInvoice);
     formParams.append("product", sanitize(productDescription) || "Order");
@@ -117,7 +190,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       appid: mask(appId),
       appkey: mask(appKey),
       epi,
-      amount,
+      amount: serverAmount,
     });
 
     const valorResponse = await fetch(VALOR_API_URL, {

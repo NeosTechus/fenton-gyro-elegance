@@ -1,6 +1,13 @@
 import { useState, useRef } from "react";
 import { CreditCard, Loader2, CheckCircle, XCircle, Wifi, WifiOff } from "lucide-react";
-import { sendCreditSale, dollarsToCents, isValorConfigured, ValorSuccessResponse } from "@/lib/valor";
+import {
+  sendCreditSale,
+  dollarsToCents,
+  isValorConfigured,
+  ValorSuccessResponse,
+  newReqTxnId,
+  checkValorTxnStatus,
+} from "@/lib/valor";
 
 interface ValorPaymentProps {
   totalAmount: number; // in dollars, e.g. 12.50
@@ -8,7 +15,6 @@ interface ValorPaymentProps {
   orderNumber?: number;
   lineItems?: { name: string; price: number; quantity: number }[];
   epi: string;
-  appkey: string;
   onSuccess: (response: ValorSuccessResponse) => void;
   onCancel: () => void;
 }
@@ -21,7 +27,6 @@ const ValorPayment = ({
   orderNumber,
   lineItems,
   epi,
-  appkey,
   onSuccess,
   onCancel,
 }: ValorPaymentProps) => {
@@ -30,6 +35,10 @@ const ValorPayment = ({
   const [response, setResponse] = useState<ValorSuccessResponse | null>(null);
   const configured = isValorConfigured();
   const paymentLockRef = useRef(false);
+  // ONE stable reqTxnId per logical sale. Minted on the first attempt and
+  // REUSED on every "Try Again" so the server-side idempotency guard prevents
+  // a double charge if a prior attempt actually captured.
+  const reqTxnIdRef = useRef<string | null>(null);
 
   const handlePayment = async () => {
     if (paymentLockRef.current) return;
@@ -37,7 +46,22 @@ const ValorPayment = ({
     setState("processing");
     setError("");
 
+    // Reuse the same reqTxnId across retries; mint once.
+    if (!reqTxnIdRef.current) reqTxnIdRef.current = newReqTxnId();
+    const reqTxnId = reqTxnIdRef.current;
+
     try {
+      // Pre-retry gate: before re-publishing on a retry, verify the existing
+      // reqTxnId hasn't already approved/captured on the terminal. If it has,
+      // surface that approval instead of charging the card again.
+      const existing = await checkValorTxnStatus(epi, reqTxnId);
+      if (existing) {
+        setResponse(existing);
+        setState("success");
+        onSuccess(existing);
+        return;
+      }
+
       const result = await sendCreditSale({
         amountCents: dollarsToCents(totalAmount),
         tipEnabled,
@@ -49,7 +73,7 @@ const ValorPayment = ({
           total: item.price.toFixed(2),
         })),
         epi,
-        appkey,
+        reqTxnId,
       });
 
       setResponse(result);

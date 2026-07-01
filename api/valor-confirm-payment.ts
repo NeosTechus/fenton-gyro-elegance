@@ -2,6 +2,7 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { rateLimit, isAllowedOrigin, setCors, errorResponse } from "./_lib/security.js";
 import { adminDb } from "./_lib/firebase-admin.js";
 import { FieldValue } from "firebase-admin/firestore";
+import { cardBreakdownFromTotal } from "./_lib/pricing.js";
 
 /**
  * POST /api/valor-confirm-payment
@@ -35,7 +36,30 @@ interface ValorStatusResult {
   rrn?: string;
   authCode?: string;
   maskedPan?: string;
+  // The amount Valor reports as captured/approved for this transaction, in
+  // dollars. Used to verify the customer was charged the expected card total.
+  amount?: number;
   raw: Record<string, unknown>;
+}
+
+// Pull a dollar amount out of whatever field Valor used. ePage responses vary
+// (amount / approved_amount / total / authorized_amount / txn_amount); some are
+// strings, some include a leading "$". Returns undefined if none parse.
+function parseValorAmount(data: Record<string, unknown>): number | undefined {
+  const candidates = [
+    data.amount,
+    data.approved_amount,
+    data.authorized_amount,
+    data.txn_amount,
+    data.total,
+    data.total_amount,
+  ];
+  for (const c of candidates) {
+    if (c === undefined || c === null) continue;
+    const n = typeof c === "number" ? c : parseFloat(String(c).replace(/[^0-9.]/g, ""));
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return undefined;
 }
 
 // Query Valor for the ePage transaction status by invoice number. We pass
@@ -68,17 +92,30 @@ async function queryValorStatus(opts: {
     let data: Record<string, unknown>;
     try { data = JSON.parse(text); } catch { data = { raw: text }; }
 
-    const approved =
-      data.error_no === "S00" ||
-      data.status === "approved" ||
-      data.status === "APPROVED" ||
-      data.txn_status === "approved";
+    const rrn = (data.rrn as string) || opts.rrn;
+    const authCode = (data.auth_code as string) || (data.code as string);
+
+    // error_no === "S00" only means the inquiry API CALL succeeded — NOT that a
+    // transaction was captured. Require an explicit transaction-level approved
+    // status AND a real transaction reference (rrn or auth_code). Without this,
+    // an empty/"no transaction found" S00 envelope would be treated as a
+    // successful payment and mint a free meal.
+    const statusStr = String(data.status ?? "").toLowerCase();
+    const txnStatusStr = String(data.txn_status ?? "").toLowerCase();
+    const txnApprovedSignal =
+      statusStr === "approved" ||
+      statusStr === "success" ||
+      txnStatusStr === "approved" ||
+      txnStatusStr === "success";
+    const hasTxnRef = Boolean(rrn) || Boolean(authCode);
+    const approved = txnApprovedSignal && hasTxnRef;
 
     return {
       approved,
-      rrn: (data.rrn as string) || opts.rrn,
-      authCode: (data.auth_code as string) || (data.code as string),
+      rrn,
+      authCode,
       maskedPan: (data.masked_pan as string) || (data.card_last4 as string),
+      amount: parseValorAmount(data),
       raw: data,
     };
   } finally {
@@ -153,33 +190,96 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   // Mark paid atomically. Mirror the webhook's transaction so duplicate calls
-  // (browser retries) don't double-write.
+  // (browser retries) don't double-write. The amount comparison happens INSIDE
+  // the transaction against the freshly-read order total so we never flip an
+  // order to paid for less than it costs.
+  let txnOutcome: "paid" | "already" | "amount_mismatch" | "not_found" = "not_found";
   try {
-    await adminDb.runTransaction(async (tx) => {
+    txnOutcome = await adminDb.runTransaction(async (tx) => {
       const snap = await tx.get(orderRef);
-      if (!snap.exists) return;
+      if (!snap.exists) return "not_found" as const;
       const data = snap.data() || {};
-      if (data.payment_status === "paid") return; // idempotent
+      if (data.payment_status === "paid") return "already" as const;
+
+      // Defense-in-depth amount check. The PRIMARY control against undercharge
+      // is create-valor-checkout, which already recomputes the charged amount
+      // server-side from this order's stored total (the browser can't dictate
+      // it). Here we only HOLD an order when we can positively SEE that Valor
+      // captured LESS than expected. Crucially we FAIL OPEN when the captured
+      // amount is unknown: Valor's status payload field names vary, and if we
+      // can't parse an amount we must NOT strand every paid order as unpaid
+      // (kitchen would never see real orders). Overcharge (customer paid more)
+      // is logged via paid_amount but never withholds fulfillment.
+      // Compare against the pre-surcharge SUBTOTAL, not the grand total: Valor's
+      // payload may echo back either the pre-surcharge `amount` (= subtotal, what
+      // the ePage request carried) or the captured grand total, and the two
+      // parsers can pick up either. Holding only when the captured figure is
+      // below even the bare subtotal still catches a real undercharge (e.g. the
+      // $0.01-for-$50 attack) while never false-flagging a correctly-charged
+      // order just because Valor reported the subtotal field.
+      const expected = cardBreakdownFromTotal(
+        typeof data.total === "number" ? data.total : NaN,
+      );
+      const capturedAmount = valorResult.amount;
+      const knownUndercharge =
+        expected != null &&
+        typeof capturedAmount === "number" &&
+        capturedAmount + 0.01 < expected.subtotal;
+
+      if (knownUndercharge) {
+        tx.update(orderRef, {
+          amount_mismatch: true,
+          amount_mismatch_at: FieldValue.serverTimestamp(),
+          amount_mismatch_detail: {
+            captured: capturedAmount ?? null,
+            expected: expected?.total ?? null,
+            via: "confirm_endpoint",
+          },
+        });
+        return "amount_mismatch" as const;
+      }
 
       const update: Record<string, unknown> = {
         payment_status: "paid",
         paid_at: FieldValue.serverTimestamp(),
         paid_via: "confirm_endpoint",
+        // ?? null — an undefined field throws the whole transaction (Firestore
+        // rejects undefined), which would strand a real paid order as unpaid.
+        // This is the fail-open path, so coalesce to null.
+        paid_amount: capturedAmount ?? null,
       };
       if (valorResult.rrn) update.rrn = valorResult.rrn;
       if (valorResult.authCode) update.auth_code = valorResult.authCode;
       if (valorResult.maskedPan) update.masked_pan = valorResult.maskedPan;
 
-      // Only advance status if chef hasn't already touched it.
-      if (data.status === "pending") {
+      // Advance status if chef hasn't already touched it. Also UN-EXPIRE a
+      // late-paid order the orphan cron marked 'expired', so a slow-but-real
+      // payment re-activates it for the kitchen instead of being stranded.
+      if (data.status === "pending" || data.status === "expired") {
         update.status = "received";
+        update.expired_at = FieldValue.delete();
       }
 
       tx.update(orderRef, update);
+      return "paid" as const;
     });
   } catch (err) {
     console.error("[confirm-payment] firestore write failed", err);
     return res.status(500).json({ ok: false, error: "Could not update order" });
+  }
+
+  if (txnOutcome === "amount_mismatch") {
+    console.error("[confirm-payment] AMOUNT MISMATCH — left unpaid for review", {
+      orderId,
+      captured: valorResult.amount ?? null,
+      rrn: valorResult.rrn || null,
+      auth_code: valorResult.authCode || null,
+    });
+    return res.status(200).json({
+      ok: false,
+      amount_mismatch: true,
+      message: "Payment amount could not be verified; order held for review",
+    });
   }
 
   console.log("[confirm-payment] approved", {

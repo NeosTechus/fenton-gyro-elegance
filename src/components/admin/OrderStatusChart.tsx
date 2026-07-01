@@ -12,6 +12,7 @@ const STATUS_COLORS: Record<OrderStatus, string> = {
   ready: "#27ae60",
   completed: "#2c6e49",
   cancelled: "#7f8c8d",
+  expired: "#95a5a6",
 };
 
 const OrderStatusChart = ({ orders }: OrderStatusChartProps) => {

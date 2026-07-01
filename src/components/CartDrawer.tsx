@@ -8,6 +8,49 @@ import { computeTotals } from "@/lib/pricing";
 
 
 
+// Persist the order id created for a given cart so a back-button / bfcache
+// restore (which can re-fire handleSubmit) doesn't mint a SECOND unpaid order
+// for the same items. Keyed by a stable signature of the cart contents.
+const SUBMITTED_ORDER_KEY = "fg_submitted_order";
+
+function cartSignature(items: { item: { id: string; price: number }; qty: number }[]): string {
+  return items
+    .map(({ item, qty }) => `${item.id}:${qty}:${item.price}`)
+    .sort()
+    .join("|");
+}
+
+// The guard only needs to catch an IMMEDIATE back-button / bfcache re-submit
+// (which happens within seconds of leaving for Valor). We TTL it so a later
+// genuine reorder of the same items doesn't resolve to a long-since-PAID order
+// id (which the server would 409). Keep it short.
+const SUBMITTED_ORDER_TTL_MS = 5 * 60 * 1000;
+
+function readSubmittedOrder(sig: string, nowMs: number): string | null {
+  try {
+    const raw = sessionStorage.getItem(SUBMITTED_ORDER_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { sig?: string; orderId?: string; ts?: number };
+    if (!parsed || parsed.sig !== sig || !parsed.orderId) return null;
+    // Expired -> ignore so a reorder mints a fresh order rather than reusing a
+    // possibly-paid id.
+    if (typeof parsed.ts !== "number" || nowMs - parsed.ts > SUBMITTED_ORDER_TTL_MS) {
+      return null;
+    }
+    return parsed.orderId;
+  } catch {
+    return null;
+  }
+}
+
+function writeSubmittedOrder(sig: string, orderId: string, nowMs: number): void {
+  try {
+    sessionStorage.setItem(SUBMITTED_ORDER_KEY, JSON.stringify({ sig, orderId, ts: nowMs }));
+  } catch {
+    /* sessionStorage unavailable (private mode) — best-effort only */
+  }
+}
+
 const CartDrawer = ({ open, onClose }: { open: boolean; onClose: () => void }) => {
   const { cartItems, totalItems, totalPrice, addItem, removeItem, removeLine, clearCart } = useCart();
   const orderType = "pickup";
@@ -47,22 +90,34 @@ const CartDrawer = ({ open, onClose }: { open: boolean; onClose: () => void }) =
         price: item.price,
         quantity: qty,
       }));
+      // Guard against a back-button / bfcache restore re-firing handleSubmit
+      // for the SAME cart: if we already minted an unpaid order for exactly
+      // these items, reuse it and re-redirect instead of creating a duplicate.
+      const sig = cartSignature(cartItems);
+      const nowMs = Date.now();
       // Send pre-surcharge amount + tax to Valor; its ePage will apply the
       // 4% surcharge itself via surchargeIndicator=1. Sending the card total
       // would cause double-charging (our 4% + Valor's 4%).
       const { subtotal, tax, surcharge, total: cardTotal } = computeTotals(totalPrice, "card");
-      const orderId = await createOrder({
-        customer_name: formData.name,
-        customer_email: formData.email,
-        customer_phone: formData.phone,
-        items: items.map(({ name, price, quantity }) => ({ name, price, quantity })),
-        total: cardTotal,
-        order_type: orderType,
-        notes: formData.notes,
-        source: "web",
-        payment: "card",
-        payment_status: "unpaid",
-      });
+      const existingOrderId = readSubmittedOrder(sig, nowMs);
+      const orderId =
+        existingOrderId ||
+        (await createOrder({
+          customer_name: formData.name,
+          customer_email: formData.email,
+          customer_phone: formData.phone,
+          items: items.map(({ name, price, quantity }) => ({ name, price, quantity })),
+          total: cardTotal,
+          order_type: orderType,
+          notes: formData.notes,
+          source: "web",
+          payment: "card",
+          payment_status: "unpaid",
+        }));
+
+      // Remember this order for the current cart so a re-submit short-circuits
+      // to the same order id rather than minting another unpaid duplicate.
+      writeSubmittedOrder(sig, orderId, nowMs);
 
       const checkoutUrl = await createValorCheckout({
         amount: subtotal.toFixed(2),
@@ -76,9 +131,37 @@ const CartDrawer = ({ open, onClose }: { open: boolean; onClose: () => void }) =
       });
       const url = new URL(checkoutUrl);
       url.searchParams.set("orderId", orderId);
+      // Clear the cart only when the page ACTUALLY unloads to Valor. If the
+      // navigation is blocked/aborted (user hits back before the hosted page
+      // loads), the cart stays intact for retry — and the submitted-order guard
+      // still reuses this same order id, so no duplicate is created.
+      //
+      // pagehide also fires when a (mobile) tab is merely frozen into bfcache
+      // while still visible — clearing then would wipe a live cart mid-session.
+      // So only clear when the page is actually being hidden/unloaded, and if
+      // the navigation never commits, drop the leaked listener after a tick.
+      const clearOnLeave = () => {
+        if (document.visibilityState === "hidden") clearCart();
+      };
+      window.addEventListener("pagehide", clearOnLeave, { once: true });
+      window.setTimeout(() => {
+        if (document.visibilityState === "visible") {
+          window.removeEventListener("pagehide", clearOnLeave);
+        }
+      }, 2000);
       window.location.href = url.toString();
     } catch (error) {
       console.error("Checkout error:", error);
+      // Drop the submitted-order guard so a retry isn't stuck reusing a stale
+      // (possibly already-completed) order id — a fresh order will be minted.
+      // Worst case is a duplicate UNPAID order, which the orphan cron expires;
+      // the server rejects re-paying a completed order, so there is no double
+      // charge.
+      try {
+        sessionStorage.removeItem(SUBMITTED_ORDER_KEY);
+      } catch {
+        /* sessionStorage unavailable — best effort */
+      }
       toast.error(error instanceof Error ? error.message : "Payment failed. Please try again.");
       setIsProcessing(false);
     }

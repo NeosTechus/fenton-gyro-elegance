@@ -11,12 +11,15 @@ rules_version = '2';
 //   - Unauthenticated customers can cancel their OWN order — but ONLY while
 //     status is still 'pending' (chef hasn't accepted) and ONLY the status
 //     field can change. This powers the 15s self-cancel button on /track.
-//   - Authenticated staff updates are whitelisted to operational + POS payment-
-//     capture fields. Monetary + identity fields (total, items, customer_*) are
-//     immutable from the client. Web payment_status flips happen via the Admin
-//     SDK (Valor webhook) which bypasses these rules; POS payment_status flips
-//     happen client-side AFTER the Valor terminal confirms synchronously.
-//   - `get` is public for customer order tracking; `list` is auth'd.
+//   - Authenticated STAFF (request.auth.token.staff == true) updates are
+//     whitelisted to operational + POS payment-capture fields. Being merely
+//     authenticated is NOT enough — the 'staff' custom claim is required, so a
+//     compromised/ordinary auth session can't mutate orders. Monetary +
+//     identity fields (total, items, customer_*) are immutable from the client.
+//     Web payment_status flips happen via the Admin SDK (Valor webhook /
+//     confirm-payment / void) which bypasses these rules; the only client path
+//     that may set payment_status:'paid' is a STAFF POS terminal capture.
+//   - `get` is public for customer order tracking; `list` is staff-only.
 // ──────────────────────────────────────────────────────────────────────────────
 
 service cloud.firestore {
@@ -32,8 +35,29 @@ service cloud.firestore {
       // Anyone can read a single order (for customer tracking)
       allow get: if true;
 
-      // Only authenticated users can list/query orders (kitchen, admin, POS)
-      allow list: if request.auth != null;
+      // Only authenticated STAFF can list/query orders (kitchen, admin, POS).
+      // Requires the 'staff' custom claim — a bare authenticated session is
+      // not sufficient to enumerate all customer orders.
+      allow list: if isStaff();
+
+      // ── Staff identity ────────────────────────────────────────────────
+      // A signed-in user is "staff" if their email is on the operations
+      // allow-list (mirrors ROLE_MAP in src/lib/roles.ts) — this works TODAY
+      // with the existing pos@/kiosk@/chef@/admin@ accounts, no custom-claim
+      // migration required. The custom-claim / role-claim paths are also
+      // accepted so we can migrate to claims later without touching these
+      // rules. A bare authenticated customer is NOT staff.
+      function isStaff() {
+        return request.auth != null &&
+               (request.auth.token.staff == true ||
+                request.auth.token.role in ['staff', 'admin'] ||
+                request.auth.token.email in [
+                  'admin@fentongyro.com',
+                  'chef@fentongyro.com',
+                  'pos@fentongyro.com',
+                  'kiosk@fentongyro.com'
+                ]);
+      }
 
       // ── Shared validation ─────────────────────────────────────────────
       function baseOrderValid() {
@@ -66,7 +90,12 @@ service cloud.firestore {
                (resource.data.status == 'preparing' &&
                   request.resource.data.status in ['ready', 'completed', 'cancelled']) ||
                (resource.data.status == 'ready' &&
-                  request.resource.data.status in ['completed', 'cancelled']);
+                  request.resource.data.status in ['completed', 'cancelled']) ||
+               // An orphan-cron 'expired' order can be re-activated when staff
+               // collect payment at the counter (markOrderPaid moves it back to
+               // 'received') or a late web payment lands.
+               (resource.data.status == 'expired' &&
+                  request.resource.data.status in ['received', 'preparing', 'ready', 'completed', 'cancelled']);
       }
 
       // ── CREATE — unauthenticated web customers ────────────────────────
@@ -82,8 +111,9 @@ service cloud.firestore {
 
       // ── CREATE — authenticated POS / Kiosk staff ──────────────────────
       // Staff devices can mark orders paid or unpaid (e.g. cash-pay-at-counter
-      // flow) and use any operational starting status.
-      allow create: if request.auth != null &&
+      // flow) and use any operational starting status. Gated on the 'staff'
+      // custom claim so a bare authenticated session can't mint paid orders.
+      allow create: if isStaff() &&
                        baseOrderValid() &&
                        request.resource.data.source in ['pos', 'kiosk'] &&
                        request.resource.data.payment_status in ['paid', 'unpaid'] &&
@@ -93,28 +123,59 @@ service cloud.firestore {
       // The /track page lets a customer cancel within a 15s window WHILE the
       // chef hasn't accepted yet. Allow ONLY the status field to flip
       // pending → cancelled. Any other mutation is blocked.
+      // Hardened against abuse: order IDs are public (allow get + the /track URL
+      // + ePage invoice), so without these gates anyone who learns an ID could
+      // cancel any pending order at any time. We therefore require (a) it is not
+      // already paid — a paid order must go through the server void so the charge
+      // is reversed and payment_status stays consistent — and (b) it is within
+      // the same ~25s self-cancel window the UI/void endpoint enforce (15s +
+      // 10s grace), measured from the server-written created_at timestamp.
       allow update: if request.auth == null &&
                        resource.data.status == 'pending' &&
+                       resource.data.payment_status != 'paid' &&
                        request.resource.data.status == 'cancelled' &&
                        request.resource.data.diff(resource.data).affectedKeys()
                          .hasOnly(['status']) &&
-                       statusTransitionValid();
+                       statusTransitionValid() &&
+                       resource.data.created_at is timestamp &&
+                       request.time < resource.data.created_at + duration.value(25, 's');
 
-      // ── UPDATE — authenticated staff ──────────────────────────────────
-      // Operational fields + the POS payment-capture fields (payment_status,
-      // rrn, auth_code, masked_pan). POS staff need these for cash/pay-at-
-      // counter and POS-terminal card sales, where the Valor terminal returns
-      // capture refs synchronously to the client. Monetary + identity fields
-      // (total, items, customer_*) are still immutable from clients.
+      // ── UPDATE — authenticated STAFF ──────────────────────────────────
+      // Gated on the 'staff' custom claim (isStaff()) — bare authentication is
+      // NOT enough. Operational fields + the POS payment-capture fields
+      // (payment_status, rrn, auth_code, masked_pan). POS staff need these for
+      // cash/pay-at-counter and POS-terminal card sales, where the Valor
+      // terminal returns capture refs synchronously to the client. Monetary +
+      // identity fields (total, items, customer_*) are still immutable from
+      // clients.
       //
-      // TODO: gate on a staff custom-claim once role claims are introduced;
-      // today "authed = staff" because customer-facing flows are unauth.
-      allow update: if request.auth != null &&
+      // payment_status is locked down: the AUTHORITATIVE 'paid' flips for web
+      // orders happen via the Admin SDK (Valor webhook / confirm-payment),
+      // which bypasses these rules. From the client, only a STAFF POS terminal
+      // may set payment_status, and 'voided' is reserved for the Admin SDK
+      // (api/valor-void) so clients can't fake a refund. See
+      // paymentStatusWriteAllowed().
+      function paymentStatusWriteAllowed() {
+        // No payment_status mutation -> always fine.
+        return request.resource.data.payment_status == resource.data.payment_status ||
+               // A STAFF device may move an order unpaid -> paid (synchronous
+               // Valor terminal sale, or cash collected at the counter). This
+               // includes paying for a 'web' order whose online payment failed
+               // and is being settled at the counter — the POS pending-payments
+               // list surfaces unpaid web orders too. The isStaff() gate on the
+               // rule is the real authority; 'voided' stays Admin-SDK-only so a
+               // client can never fake a refund.
+               (request.resource.data.payment_status == 'paid' &&
+                resource.data.payment_status == 'unpaid' &&
+                resource.data.source in ['pos', 'kiosk', 'web']);
+      }
+      allow update: if isStaff() &&
                        request.resource.data.diff(resource.data).affectedKeys()
                          .hasOnly([
                            'status', 'prep_time', 'receipt_printed_at', 'notes',
                            'payment_status', 'rrn', 'auth_code', 'masked_pan'
                          ]) &&
+                       paymentStatusWriteAllowed() &&
                        statusTransitionValid();
 
       // No one can delete orders

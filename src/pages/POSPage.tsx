@@ -35,9 +35,12 @@ import {
   cancelValorTransaction,
   ValorCancelledError,
   ValorTimeoutError,
+  ValorDeclinedError,
   recoverValorTransaction,
   sendVoid,
   warmupValor,
+  newReqTxnId,
+  checkValorTxnStatus,
 } from "@/lib/valor";
 import { computeTotals } from "@/lib/pricing";
 import { ValorEPI, getEPIs } from "@/lib/valor-epi";
@@ -99,7 +102,8 @@ const POSPage = () => {
   const [selectedEpiId, setSelectedEpiId] = useState<string>(epis[0]?.id || "");
   const selectedTerminal = epis.find((e) => e.id === selectedEpiId);
   const selectedEpi = selectedTerminal?.id || "";
-  const selectedAppKey = selectedTerminal?.appKey || "";
+  // NOTE: the terminal's secret appKey is no longer read on the client — it is
+  // resolved SERVER-SIDE from the VALOR_TERMINAL_KEYS env allow-list (by EPI).
   const [showHistory, setShowHistory] = useState(false);
   const [showAnalytics, setShowAnalytics] = useState(false);
   const [analyticsRange, setAnalyticsRange] = useState<"today" | "month" | "3months">("today");
@@ -123,6 +127,18 @@ const POSPage = () => {
   const checkoutLockRef = useRef(false);
   const blockedCardRetryRef = useRef(false);
   const pendingOrderIdRef = useRef<string | null>(null);
+  // ONE stable reqTxnId per logical sale, minted at sale start and REUSED on
+  // every retry / recovery so the server-side idempotency guard prevents a
+  // double charge. checkoutReqTxnIdRef = current new-order checkout (incl. POS
+  // split); unpaidReqTxnIdRef maps a pending order id -> its stable reqTxnId.
+  const checkoutReqTxnIdRef = useRef<string | null>(null);
+  const unpaidReqTxnIdRef = useRef<Map<string, string>>(new Map());
+  const inFlightSaleRef = useRef<Promise<unknown> | null>(null);
+  // In-flight unpaid-order card sale promise, keyed by order id, so the
+  // switch-to-cash and cancel handlers can AWAIT the actual sale outcome (like
+  // the new-order path awaits inFlightSaleRef) before voiding/cancelling —
+  // otherwise a late capture races past them onto a cancelled/cash order.
+  const unpaidSaleRef = useRef<Map<string, Promise<unknown>>>(new Map());
   const cartEndRef = useRef<HTMLDivElement>(null);
   const [paymentRecovery, setPaymentRecovery] = useState<{ reqTxnId: string; orderId?: string } | null>(null);
   const [unpaidRecovery, setUnpaidRecovery] = useState<{ orderId: string; tag: string; total: number; reqTxnId: string } | null>(null);
@@ -179,11 +195,11 @@ const POSPage = () => {
   // Warm Valor lambdas on mount + every 4 min so first sale after idle
   // doesn't pay a Vercel cold-start delay before the terminal is reached.
   useEffect(() => {
-    if (!selectedEpi || !selectedAppKey) return;
-    warmupValor(selectedEpi, selectedAppKey);
-    const id = setInterval(() => warmupValor(selectedEpi, selectedAppKey), 4 * 60 * 1000);
+    if (!selectedEpi) return;
+    warmupValor(selectedEpi);
+    const id = setInterval(() => warmupValor(selectedEpi), 4 * 60 * 1000);
     return () => clearInterval(id);
-  }, [selectedEpi, selectedAppKey]);
+  }, [selectedEpi]);
 
   const totalItems = cart.reduce((s, c) => s + c.qty, 0);
   const totalPrice = cart.reduce((s, c) => s + (c.item.price + c.modifiersTotal) * c.qty, 0);
@@ -256,37 +272,73 @@ const POSPage = () => {
 
   /** Create an unpaid POS order before sending to the terminal so a successful
    *  card charge always has a Firestore doc to attach to. */
+  // In-flight createOrder promise — so two near-simultaneous callers (e.g. a
+  // double-tap or Card + Split racing) await the SAME create instead of each
+  // minting a duplicate unpaid doc.
+  const ensureUnpaidOrderPromiseRef = useRef<Promise<string> | null>(null);
+
   const ensureUnpaidPosOrder = async (): Promise<string> => {
     if (pendingOrderIdRef.current) return pendingOrderIdRef.current;
     if (loadedPendingOrderId) return loadedPendingOrderId;
+    // Serialize concurrent callers behind one create.
+    if (ensureUnpaidOrderPromiseRef.current) return ensureUnpaidOrderPromiseRef.current;
+
     const { total } = computeTotals(totalPrice, "card");
-    const id = await createOrder({
-      customer_name: orderType === "dine-in" ? "Dine-In Customer" : "Take-Out Customer",
-      customer_email: "",
-      customer_phone: "",
-      items: buildOrderItems(),
-      total,
-      order_type: orderType,
-      notes: `POS Order #${orderNumber}`,
-      source: "pos",
-      payment: "card",
-      payment_status: "unpaid",
-      terminal_epi: selectedEpi || undefined,
-    });
-    setLoadedPendingOrderId(id);
-    pendingOrderIdRef.current = id;
-    blockedCardRetryRef.current = true;
-    return id;
+    const promise = (async () => {
+      const id = await createOrder({
+        customer_name: orderType === "dine-in" ? "Dine-In Customer" : "Take-Out Customer",
+        customer_email: "",
+        customer_phone: "",
+        items: buildOrderItems(),
+        total,
+        order_type: orderType,
+        notes: `POS Order #${orderNumber}`,
+        source: "pos",
+        payment: "card",
+        payment_status: "unpaid",
+        terminal_epi: selectedEpi || undefined,
+      });
+      // Set the sentinel synchronously-after-resolve so later callers short-circuit.
+      pendingOrderIdRef.current = id;
+      setLoadedPendingOrderId(id);
+      blockedCardRetryRef.current = true;
+      return id;
+    })();
+    ensureUnpaidOrderPromiseRef.current = promise;
+    try {
+      return await promise;
+    } finally {
+      ensureUnpaidOrderPromiseRef.current = null;
+    }
   };
 
-  const voidStrayCardCharge = async (result: { TRAN_NO?: string }) => {
-    if (!result.TRAN_NO || !selectedEpi || !selectedAppKey) return;
+  /** True if a settled frame represents a CARD capture that must be voided
+   *  before recording cash/cancelling. Mirrors isFinalSuccess's settlement
+   *  signal (a real credit capture can carry RRN+TRAN_NO without MASKED_PAN),
+   *  so gating on MASKED_PAN alone would let a PAN-less capture slip through and
+   *  get double-charged. Excludes genuine cash-at-terminal tenders. */
+  const isVoidableCapture = (frame: {
+    TRAN_NO?: string;
+    TRAN_TYPE?: string;
+    TRAN_MODE?: string | number;
+  } | null | undefined): boolean => {
+    if (!frame || !frame.TRAN_NO) return false;
+    const isCashTender =
+      /cash/i.test(String(frame.TRAN_TYPE || "")) || String(frame.TRAN_MODE) === "6";
+    return !isCashTender;
+  };
+
+  /** Returns true if the stray charge was confirmed voided, false if every
+   *  retry failed (caller must treat that as a hard, blocking error). */
+  const voidStrayCardCharge = async (result: { TRAN_NO?: string }): Promise<boolean> => {
+    if (!result.TRAN_NO) return true; // nothing was captured — nothing to void
+    if (!selectedEpi) return false;
     const MAX_RETRIES = 3;
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       try {
-        await sendVoid(result.TRAN_NO, selectedEpi, selectedAppKey);
+        await sendVoid(result.TRAN_NO, selectedEpi);
         console.log("[pos] stray-charge void succeeded on attempt", attempt);
-        return;
+        return true;
       } catch (e) {
         console.error(`[pos] stray-charge void attempt ${attempt}/${MAX_RETRIES} failed`, e);
         if (attempt < MAX_RETRIES) {
@@ -301,6 +353,7 @@ const POSPage = () => {
         " from the Valor terminal batch report to prevent a double charge.",
       { duration: 15000 }
     );
+    return false;
   };
 
   const persistCardApproval = async (
@@ -326,7 +379,11 @@ const POSPage = () => {
     orderTotal: number,
   ) => {
     if (switchedToCashRef.current) {
-      voidStrayCardCharge(result);
+      // Staff switched to cash while this card sale was in flight. Do NOT void
+      // here — handleSwitchToCash awaits this same sale promise and owns the
+      // void with a blocking success check. Voiding in both places raced the
+      // same TRAN_NO: the second void hit an already-voided txn, returned
+      // false, and falsely reported "auto-void FAILED", blocking the cash save.
       return;
     }
     try {
@@ -387,7 +444,7 @@ const POSPage = () => {
 
   const dismissPaymentRecovery = (cancelTxn: boolean) => {
     if (cancelTxn && paymentRecovery?.reqTxnId) {
-      cancelValorTransaction(selectedEpi, selectedAppKey, paymentRecovery.reqTxnId);
+      cancelValorTransaction(selectedEpi, paymentRecovery.reqTxnId);
     }
     setPaymentRecovery(null);
     checkoutLockRef.current = false;
@@ -405,6 +462,9 @@ const POSPage = () => {
     checkoutLockRef.current = true;
     switchedToCashRef.current = false;
     setIsProcessing(true);
+    // Mint ONE stable reqTxnId for this sale; reuse on every retry.
+    if (!checkoutReqTxnIdRef.current) checkoutReqTxnIdRef.current = newReqTxnId();
+    const reqTxnId = checkoutReqTxnIdRef.current;
     let orderId: string | null = null;
     const cardTotal = computeTotals(totalPrice, "card").total;
     let awaitingRecovery = false;
@@ -418,16 +478,18 @@ const POSPage = () => {
         total: ((c.item.price + c.modifiersTotal) * c.qty).toFixed(2),
       }));
 
-      const result = await sendCreditSale({
+      const salePromise = sendCreditSale({
         amountCents: dollarsToCents(totalWithTax),
         tipEnabled: true,
         printReceipt: true,
         invoiceNumber: orderId,
         lineItems,
         epi: selectedEpi,
-        appkey: selectedAppKey,
+        reqTxnId,
         onTxnId: (id) => setInFlightTxnId(id),
       });
+      inFlightSaleRef.current = salePromise;
+      const result = await salePromise;
 
       await finalizeCardPayment(result, `#${orderNumber}`, orderId, cardTotal);
     } catch (error) {
@@ -444,8 +506,17 @@ const POSPage = () => {
         return;
       }
       console.error("POS checkout error:", error);
+      // A DEFINITE decline (card read & rejected, nothing captured) is safe to
+      // retry on the SAME order: mint a fresh txn id and lift the retry block so
+      // staff can try another card without re-ringing. We do NOT do this for
+      // generic/network errors, where a capture may have silently happened.
+      if (error instanceof ValorDeclinedError) {
+        checkoutReqTxnIdRef.current = null;
+        blockedCardRetryRef.current = false;
+      }
       toast.error(error instanceof Error ? error.message : "Payment failed");
     } finally {
+      inFlightSaleRef.current = null;
       if (!switchedToCashRef.current && !awaitingRecovery) {
         checkoutLockRef.current = false;
         setIsProcessing(false);
@@ -455,7 +526,7 @@ const POSPage = () => {
   };
 
   const handleRecoverPayment = async () => {
-    if (!paymentRecovery || !selectedEpi || !selectedAppKey) return;
+    if (!paymentRecovery || !selectedEpi) return;
     checkoutLockRef.current = true;
     setIsProcessing(true);
     const orderId = paymentRecovery.orderId ?? loadedPendingOrderId;
@@ -463,7 +534,6 @@ const POSPage = () => {
     try {
       const result = await recoverValorTransaction(
         selectedEpi,
-        selectedAppKey,
         paymentRecovery.reqTxnId,
       );
       if (!orderId) throw new Error("Order record missing — check Pending Payments");
@@ -477,23 +547,73 @@ const POSPage = () => {
       }
       toast.error(error instanceof Error ? error.message : "Still waiting on terminal");
     } finally {
-      if (!paymentRecovery) {
-        checkoutLockRef.current = false;
-        setIsProcessing(false);
-        setInFlightTxnId(null);
-      }
+      // Unconditional: the previous `if (!paymentRecovery)` was dead code —
+      // paymentRecovery is the closure-captured (non-null) value, so the guard
+      // was always false and the lock/isProcessing were never released on the
+      // failure path, freezing the recovery dialog AND all card sales until
+      // reload. On success resetOrder already cleared these (idempotent); on
+      // failure this re-enables the dialog buttons for another attempt.
+      checkoutLockRef.current = false;
+      setIsProcessing(false);
+      setInFlightTxnId(null);
     }
   };
 
   const handleSwitchToCash = async () => {
+    // CAREFUL: do NOT optimistically mark cash while a card charge may still be
+    // capturing. We (1) signal the in-flight handler to stop, (2) cancel the
+    // terminal txn and AWAIT it, (3) wait for the tracked sale promise to
+    // settle, then (4) verify via a status check that the card did NOT capture.
+    // Only then save as cash. A card that actually captured is voided first;
+    // a FAILED void is a hard blocking error, not a silent toast.
     switchedToCashRef.current = true;
-    const toCancel = inFlightTxnId;
+    const toCancel = inFlightTxnId ?? checkoutReqTxnIdRef.current;
+    const pendingSale = inFlightSaleRef.current;
     setInFlightTxnId(null);
-    setIsProcessing(false);
-    dismissPaymentRecovery(true);
+    setIsProcessing(true);
+
+    // 1+2. Cancel the live terminal txn and await it.
     if (toCancel) {
-      cancelValorTransaction(selectedEpi, selectedAppKey, toCancel);
+      await cancelValorTransaction(selectedEpi, toCancel);
     }
+
+    // 3. Let the in-flight sale settle so we know its real outcome.
+    let capturedResult: Awaited<ReturnType<typeof sendCreditSale>> | null = null;
+    if (pendingSale) {
+      try {
+        capturedResult = (await pendingSale) as Awaited<ReturnType<typeof sendCreditSale>>;
+      } catch {
+        capturedResult = null; // cancelled / declined / timed out — no capture
+      }
+    }
+
+    // 4. Belt-and-suspenders: confirm via status that nothing captured.
+    if (!capturedResult && toCancel) {
+      capturedResult = await checkValorTxnStatus(selectedEpi, toCancel);
+    }
+
+    // If the card actually captured, void it BEFORE saving as cash. A failed
+    // void blocks the cash save and surfaces a hard error so staff act on it.
+    if (isVoidableCapture(capturedResult)) {
+      const voided = await voidStrayCardCharge(capturedResult);
+      if (!voided) {
+        // Release the lock before bailing — otherwise checkoutLockRef stays
+        // true and freezes all card/split sales on the device until reload
+        // (handleCheckout's finally leaves clearing to us when switchedToCash).
+        checkoutLockRef.current = false;
+        switchedToCashRef.current = false;
+        setIsProcessing(false);
+        toast.error(
+          "Card DID capture and the auto-void FAILED — manually void it on the terminal before collecting cash. Order NOT saved as cash.",
+          { duration: 15000 },
+        );
+        return;
+      }
+    }
+
+    // Card confirmed not-captured (or successfully voided) — clear recovery and
+    // any leftover lock, then save the order as cash.
+    dismissPaymentRecovery(false);
     try {
       const savedId = pendingOrderIdRef.current ?? loadedPendingOrderId ?? (await ensureUnpaidPosOrder());
       await markOrderPaid(savedId);
@@ -502,27 +622,50 @@ const POSPage = () => {
       resetOrder();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to save order");
+    } finally {
+      setIsProcessing(false);
     }
   };
 
   const handleUnpaidCardPay = async (order: Order, tag: string) => {
+    // Gate ENTIRELY on the synchronous checkoutLockRef set before any await,
+    // so a rapid double-tap can't slip a second charge past the async state.
     if (checkoutLockRef.current || unpaidInFlight) return;
     checkoutLockRef.current = true;
     setUnpaidInFlight({ orderId: order.id, txnId: null });
     let awaitingRecovery = false;
+    // ONE stable reqTxnId per order, reused across retries.
+    let reqTxnId = unpaidReqTxnIdRef.current.get(order.id);
+    if (!reqTxnId) {
+      reqTxnId = newReqTxnId();
+      unpaidReqTxnIdRef.current.set(order.id, reqTxnId);
+    }
     try {
-      const result = await sendCreditSale({
-        amountCents: dollarsToCents(order.total),
-        tipEnabled: true,
-        printReceipt: true,
-        invoiceNumber: order.id,
-        epi: selectedEpi,
-        appkey: selectedAppKey,
-        onTxnId: (id) => setUnpaidInFlight({ orderId: order.id, txnId: id }),
-      });
+      // Pre-retry gate: if this order's reqTxnId already captured on the
+      // terminal, surface that instead of charging again.
+      const existing = await checkValorTxnStatus(selectedEpi, reqTxnId);
+      const salePromise =
+        existing != null
+          ? Promise.resolve(existing)
+          : sendCreditSale({
+              amountCents: dollarsToCents(order.total),
+              tipEnabled: true,
+              printReceipt: true,
+              invoiceNumber: order.id,
+              epi: selectedEpi,
+              reqTxnId,
+              onTxnId: (id) => setUnpaidInFlight({ orderId: order.id, txnId: id }),
+            });
+      // Publish the promise so switch-to-cash / cancel can await the real
+      // outcome before acting (prevents a late capture racing onto cash/cancel).
+      unpaidSaleRef.current.set(order.id, salePromise);
+      const result = await salePromise;
 
       if (unpaidSwitchedRef.current.has(order.id)) {
-        voidStrayCardCharge(result);
+        // Staff switched this unpaid order to cash mid-sale. Don't void here —
+        // handleUnpaidSwitchToCash awaits this same sale and owns the void with
+        // a blocking success check. Double-voiding raced the same TRAN_NO and
+        // produced a false "auto-void FAILED".
         return;
       }
 
@@ -549,8 +692,14 @@ const POSPage = () => {
         toast.error("Timed out — check terminal before retrying card", { duration: 5000 });
         return;
       }
+      // Definite decline (nothing captured) — drop this order's stable txn id so
+      // a retry mints a fresh one instead of hitting the server idempotency 409.
+      if (err instanceof ValorDeclinedError) {
+        unpaidReqTxnIdRef.current.delete(order.id);
+      }
       toast.error(err instanceof Error ? err.message : "Card payment failed");
     } finally {
+      unpaidSaleRef.current.delete(order.id);
       if (!awaitingRecovery && !unpaidSwitchedRef.current.has(order.id)) {
         checkoutLockRef.current = false;
         setUnpaidInFlight((cur) => (cur?.orderId === order.id ? null : cur));
@@ -559,13 +708,12 @@ const POSPage = () => {
   };
 
   const handleRecoverUnpaidPayment = async () => {
-    if (!unpaidRecovery || !selectedEpi || !selectedAppKey) return;
+    if (!unpaidRecovery || !selectedEpi) return;
     checkoutLockRef.current = true;
     setUnpaidInFlight({ orderId: unpaidRecovery.orderId, txnId: unpaidRecovery.reqTxnId });
     try {
       const result = await recoverValorTransaction(
         selectedEpi,
-        selectedAppKey,
         unpaidRecovery.reqTxnId,
       );
       const { orderId, tag, total } = unpaidRecovery;
@@ -589,17 +737,54 @@ const POSPage = () => {
 
   const handleUnpaidSwitchToCash = async (orderId: string, tag: string) => {
     unpaidSwitchedRef.current.add(orderId);
-    const txnId = unpaidInFlight?.orderId === orderId ? unpaidInFlight.txnId : null;
+    const txnId =
+      (unpaidInFlight?.orderId === orderId ? unpaidInFlight.txnId : null) ??
+      unpaidReqTxnIdRef.current.get(orderId) ??
+      null;
     setUnpaidInFlight(null);
-    if (txnId) cancelValorTransaction(selectedEpi, selectedAppKey, txnId);
+
     try {
-      await markOrderPaid(orderId);
-      toast.success(`Cash payment for ${tag}`, { duration: 2000 });
-      const o = orderHistory.find((x) => x.id === orderId);
-      askToPrint(orderId, tag, o?.total ?? 0);
-      setExpandedUnpaidOrder(null);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to mark paid");
+      // Cancel the live terminal txn and AWAIT it, then let the in-flight card
+      // sale (if any) fully settle, then verify nothing captured before marking
+      // cash. A captured card is voided first; a failed void is a hard blocking
+      // error. Awaiting the actual sale promise (not just a status snapshot)
+      // closes the race where a capture lands AFTER our status check.
+      if (txnId) {
+        await cancelValorTransaction(selectedEpi, txnId);
+        const pendingSale = unpaidSaleRef.current.get(orderId);
+        if (pendingSale) {
+          try { await pendingSale; } catch { /* decline/cancel/timeout — no capture */ }
+        }
+        const captured = await checkValorTxnStatus(selectedEpi, txnId);
+        if (isVoidableCapture(captured)) {
+          const voided = await voidStrayCardCharge(captured);
+          if (!voided) {
+            toast.error(
+              `Card DID capture for ${tag} and the auto-void FAILED — manually void it on the terminal before collecting cash. NOT marked cash.`,
+              { duration: 15000 },
+            );
+            return;
+          }
+        }
+      }
+
+      try {
+        await markOrderPaid(orderId);
+        toast.success(`Cash payment for ${tag}`, { duration: 2000 });
+        const o = orderHistory.find((x) => x.id === orderId);
+        askToPrint(orderId, tag, o?.total ?? 0);
+        setExpandedUnpaidOrder(null);
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Failed to mark paid");
+      }
+    } finally {
+      // Deterministic cleanup: this handler OWNS releasing the in-flight unpaid
+      // card-pay. handleUnpaidCardPay early-returns to us on a captured switch
+      // and intentionally does NOT clear the lock (it leaves it to us). Without
+      // this, checkoutLockRef stays true and freezes all card/split sales on
+      // the device until a page reload.
+      checkoutLockRef.current = false;
+      unpaidSwitchedRef.current.delete(orderId);
     }
   };
 
@@ -620,6 +805,25 @@ const POSPage = () => {
   const handleConfirmCashFallback = async () => {
     setCashFallbackOpen(false);
     try {
+      // This dialog is reached on a card TIMEOUT (the recovery flow) or a
+      // cancel. A timed-out card may have actually CAPTURED a few seconds late,
+      // so before recording cash we must verify the terminal and void any stray
+      // capture — otherwise the customer is double-charged (card + cash). Mirror
+      // handleSwitchToCash. A failed void hard-blocks the cash save.
+      const reqTxnId = checkoutReqTxnIdRef.current;
+      if (reqTxnId) {
+        const captured = await checkValorTxnStatus(selectedEpi, reqTxnId);
+        if (isVoidableCapture(captured)) {
+          const voided = await voidStrayCardCharge(captured);
+          if (!voided) {
+            toast.error(
+              "Card DID capture and the auto-void FAILED — manually void it on the terminal before collecting cash. Order NOT saved as cash.",
+              { duration: 15000 },
+            );
+            return;
+          }
+        }
+      }
       const savedId = pendingOrderIdRef.current ?? loadedPendingOrderId ?? (await ensureUnpaidPosOrder());
       await markOrderPaid(savedId);
       toast.success("Order saved as cash payment", { duration: 2000 });
@@ -638,6 +842,8 @@ const POSPage = () => {
     setSearchQuery("");
     setLoadedPendingOrderId(null);
     pendingOrderIdRef.current = null;
+    checkoutReqTxnIdRef.current = null;
+    inFlightSaleRef.current = null;
     setPaymentRecovery(null);
     setUnpaidRecovery(null);
     setIsProcessing(false);
@@ -941,16 +1147,30 @@ const POSPage = () => {
                                     const cashAmt = parseFloat(splitPayment.cashAmount) || 0;
                                     const cardAmt = Math.max(0, order.total - cashAmt);
                                     if (cardAmt > 0) {
+                                      // Stable reqTxnId per order so a retry can't double-charge.
+                                      let splitReqTxnId = unpaidReqTxnIdRef.current.get(order.id);
+                                      if (!splitReqTxnId) {
+                                        splitReqTxnId = newReqTxnId();
+                                        unpaidReqTxnIdRef.current.set(order.id, splitReqTxnId);
+                                      }
                                       try {
-                                        await sendCreditSale({
-                                          amountCents: dollarsToCents(cardAmt),
-                                          tipEnabled: false,
-                                          printReceipt: true,
-                                          invoiceNumber: order.id,
-                                          epi: selectedEpi,
-        appkey: selectedAppKey,
-                                        });
+                                        const existing = await checkValorTxnStatus(selectedEpi, splitReqTxnId);
+                                        if (!existing) {
+                                          await sendCreditSale({
+                                            amountCents: dollarsToCents(cardAmt),
+                                            tipEnabled: false,
+                                            printReceipt: true,
+                                            invoiceNumber: order.id,
+                                            epi: selectedEpi,
+                                            reqTxnId: splitReqTxnId,
+                                          });
+                                        }
                                       } catch (err) {
+                                        // Definite decline — drop the stable txn
+                                        // id so a retry isn't blocked by the 409.
+                                        if (err instanceof ValorDeclinedError) {
+                                          unpaidReqTxnIdRef.current.delete(order.id);
+                                        }
                                         toast.error(err instanceof Error ? err.message : "Card payment failed");
                                         return;
                                       }
@@ -1034,28 +1254,51 @@ const POSPage = () => {
                             </button>
                             <button
                               onClick={async () => {
-                                // Abort any in-flight Valor txn for this order
-                                if (unpaidInFlight?.orderId === order.id) {
+                                // If a card pay is in flight for this order we
+                                // must resolve it BEFORE cancelling: a card that
+                                // captured around the cancel must be VOIDED, not
+                                // left as a stray charge on a cancelled order.
+                                const wasInFlight = unpaidInFlight?.orderId === order.id;
+                                const txnId =
+                                  (wasInFlight ? unpaidInFlight?.txnId : null) ??
+                                  unpaidReqTxnIdRef.current.get(order.id) ??
+                                  null;
+                                if (wasInFlight) {
                                   unpaidSwitchedRef.current.add(order.id);
-                                  const txnId = unpaidInFlight.txnId;
                                   setUnpaidInFlight(null);
-                                  if (txnId) cancelValorTransaction(selectedEpi, selectedAppKey, txnId);
                                 }
-                                // Clear any split-payment input state for this order
-                                if (splitPayment?.orderId === order.id) {
-                                  setSplitPayment(null);
-                                }
-                                // Clear any pending cash-fallback for this order
-                                if (unpaidCashFallback?.orderId === order.id) {
-                                  setUnpaidCashFallback(null);
-                                }
+                                if (splitPayment?.orderId === order.id) setSplitPayment(null);
+                                if (unpaidCashFallback?.orderId === order.id) setUnpaidCashFallback(null);
                                 try {
+                                  if (txnId) {
+                                    await cancelValorTransaction(selectedEpi, txnId);
+                                    const pendingSale = unpaidSaleRef.current.get(order.id);
+                                    if (pendingSale) {
+                                      try { await pendingSale; } catch { /* no capture */ }
+                                    }
+                                    const captured = await checkValorTxnStatus(selectedEpi, txnId);
+                                    if (isVoidableCapture(captured)) {
+                                      const voided = await voidStrayCardCharge(captured);
+                                      if (!voided) {
+                                        toast.error(
+                                          `Card DID capture for ${tag} and the auto-void FAILED — manually void it on the terminal before cancelling. Order NOT cancelled.`,
+                                          { duration: 15000 },
+                                        );
+                                        return;
+                                      }
+                                    }
+                                  }
                                   await updateOrderStatus(order.id, "cancelled");
                                   toast.success(`Order ${tag} cancelled`, { duration: 2000 });
                                 } catch (e) {
                                   toast.error(e instanceof Error ? e.message : "Failed to cancel order");
                                 } finally {
+                                  // Release the lock this handler took over from
+                                  // the in-flight card pay (which defers to us),
+                                  // and clear guards deterministically.
+                                  if (wasInFlight) checkoutLockRef.current = false;
                                   unpaidSwitchedRef.current.delete(order.id);
+                                  unpaidReqTxnIdRef.current.delete(order.id);
                                   setExpandedUnpaidOrder(null);
                                 }
                               }}
@@ -1357,22 +1600,28 @@ const POSPage = () => {
                         const total = computeTotals(totalPrice, "cash").total;
                         const cashAmt = parseFloat(posSplitCash) || 0;
                         const cardAmt = Math.max(0, total - cashAmt);
+                        // Stable reqTxnId for this sale; reused on retry.
+                        if (!checkoutReqTxnIdRef.current) checkoutReqTxnIdRef.current = newReqTxnId();
+                        const reqTxnId = checkoutReqTxnIdRef.current;
                         let orderId: string | null = null;
                         let awaitingRecovery = false;
                         try {
                           orderId = await ensureUnpaidPosOrder();
                           if (cardAmt > 0) {
-                            const result = await sendCreditSale({
+                            const salePromise = sendCreditSale({
                               amountCents: dollarsToCents(cardAmt),
                               tipEnabled: false,
                               printReceipt: true,
                               invoiceNumber: orderId,
                               epi: selectedEpi,
-                              appkey: selectedAppKey,
+                              reqTxnId,
                               onTxnId: (id) => setInFlightTxnId(id),
                             });
+                            inFlightSaleRef.current = salePromise;
+                            const result = await salePromise;
                             if (switchedToCashRef.current) {
-                              voidStrayCardCharge(result);
+                              // Switch-to-cash handler awaits this same promise
+                              // and owns the void-with-check; don't double-void.
                               return;
                             }
                             await persistCardApproval(orderId, result);
@@ -1393,8 +1642,14 @@ const POSPage = () => {
                             toast.error("Timed out — check terminal before retrying", { duration: 5000 });
                             return;
                           }
+                          // Definite decline — drop the stable txn id so the next
+                          // split attempt mints a fresh one (no idempotency 409).
+                          if (err instanceof ValorDeclinedError) {
+                            checkoutReqTxnIdRef.current = null;
+                          }
                           toast.error(err instanceof Error ? err.message : "Card payment failed");
                         } finally {
+                          inFlightSaleRef.current = null;
                           if (!awaitingRecovery && !switchedToCashRef.current) {
                             checkoutLockRef.current = false;
                             setIsProcessing(false);
@@ -1429,13 +1684,46 @@ const POSPage = () => {
                       <Banknote className="w-4 h-4" /> Pay Cash Instead
                     </button>
                     <button
-                      onClick={() => {
-                        switchedToCashRef.current = true; // stop the in-flight handler from saving a duplicate card order
-                        checkoutLockRef.current = false;
-                        const toCancel = inFlightTxnId;
+                      onClick={async () => {
+                        // Stop the in-flight handler from saving a duplicate card order.
+                        switchedToCashRef.current = true;
+                        const toCancel = inFlightTxnId ?? checkoutReqTxnIdRef.current;
+                        const pendingSale = inFlightSaleRef.current;
                         setInFlightTxnId(null);
+                        // CAREFUL: do not enter split mode until the original card
+                        // txn is confirmed cancelled / voided — otherwise a fresh
+                        // split card sale could stack on a captured full charge.
+                        if (toCancel) await cancelValorTransaction(selectedEpi, toCancel);
+                        let captured: Awaited<ReturnType<typeof sendCreditSale>> | null = null;
+                        if (pendingSale) {
+                          try { captured = (await pendingSale) as Awaited<ReturnType<typeof sendCreditSale>>; }
+                          catch { captured = null; }
+                        }
+                        if (!captured && toCancel) {
+                          captured = await checkValorTxnStatus(selectedEpi, toCancel);
+                        }
+                        if (isVoidableCapture(captured)) {
+                          const voided = await voidStrayCardCharge(captured);
+                          if (!voided) {
+                            // Release the lock before bailing or the device
+                            // freezes (handleCheckout's finally defers to us
+                            // while switchedToCash is true).
+                            checkoutLockRef.current = false;
+                            switchedToCashRef.current = false;
+                            setIsProcessing(false);
+                            toast.error(
+                              "Original card DID capture and the auto-void FAILED — void it on the terminal before splitting.",
+                              { duration: 15000 },
+                            );
+                            return;
+                          }
+                        }
+                        inFlightSaleRef.current = null;
+                        // Fresh reqTxnId for the upcoming split card portion so the
+                        // server idempotency guard doesn't block it as a "retry".
+                        checkoutReqTxnIdRef.current = null;
+                        checkoutLockRef.current = false;
                         setIsProcessing(false);
-                        if (toCancel) cancelValorTransaction(selectedEpi, selectedAppKey, toCancel);
                         setPosSplitMode(true);
                         setPosSplitCash((computeTotals(totalPrice, "cash").total / 2).toFixed(2));
                       }}
@@ -1710,7 +1998,7 @@ const POSPage = () => {
               </button>
               <button
                 onClick={() => {
-                  cancelValorTransaction(selectedEpi, selectedAppKey, unpaidRecovery.reqTxnId);
+                  cancelValorTransaction(selectedEpi, unpaidRecovery.reqTxnId);
                   setUnpaidRecovery(null);
                   checkoutLockRef.current = false;
                   setUnpaidInFlight(null);
@@ -2467,7 +2755,7 @@ const POSPage = () => {
 };
 
 const POSPageWithAuth = () => {
-  const { user, loading } = useAuth();
+  const { user, role, loading } = useAuth();
 
   if (loading) {
     return (
@@ -2477,7 +2765,9 @@ const POSPageWithAuth = () => {
     );
   }
 
-  if (!user) {
+  // Staff-only: a bare authenticated customer must NOT get the POS console
+  // (mirrors AdminDashboard/KitchenDisplay/Settings role gating).
+  if (!user || (role !== "staff" && role !== "admin")) {
     return <Navigate to="/auth?redirect=/pos" replace />;
   }
 
