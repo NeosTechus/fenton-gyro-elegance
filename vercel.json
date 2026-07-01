@@ -7,6 +7,6 @@
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ],
   "crons": [
-    { "path": "/api/expire-stale-orders", "schedule": "*/15 * * * *" }
+    { "path": "/api/expire-stale-orders", "schedule": "0 4 * * *" }
   ]
 }
