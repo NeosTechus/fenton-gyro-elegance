@@ -2,44 +2,53 @@ import { ModifierGroup, MenuItem } from "@/data/menu";
 
 const NONE = "__none__";
 
-// Modifier-group palette — colors group containers + labels in the POS layout
-// so chefs can scan add-on categories at a glance.
-const MOD_GROUP_PALETTE: Record<string, { container: string; label: string }> = {
+// Modifier-group palette — strong, distinct fills so POS staff can scan
+// add-on / remove / protein / meal sections at a glance.
+const MOD_GROUP_PALETTE: Record<string, { container: string; label: string; badge: string }> = {
   toppings: {
-    container: "border-l-4 border-l-green-500 bg-green-50/30 pl-3 py-1.5 rounded-r-md",
-    label: "text-green-800",
+    container: "border-2 border-l-8 border-emerald-600 bg-emerald-100/80 pl-3 pr-2 py-2 rounded-md shadow-sm",
+    label: "text-emerald-950",
+    badge: "text-emerald-800 bg-emerald-200/80",
   },
   "double-meat": {
-    container: "border-l-4 border-l-red-500 bg-red-50/30 pl-3 py-1.5 rounded-r-md",
-    label: "text-red-800",
+    container: "border-2 border-l-8 border-red-600 bg-red-100/80 pl-3 pr-2 py-2 rounded-md shadow-sm",
+    label: "text-red-950",
+    badge: "text-red-800 bg-red-200/80",
   },
   remove: {
-    container: "border-l-4 border-l-rose-500 bg-rose-50/30 pl-3 py-1.5 rounded-r-md",
-    label: "text-rose-800",
+    container: "border-2 border-l-8 border-rose-700 bg-rose-100/90 pl-3 pr-2 py-2 rounded-md shadow-sm",
+    label: "text-rose-950",
+    badge: "text-rose-800 bg-rose-200/90",
   },
   combo: {
-    container: "border-l-4 border-l-purple-500 bg-purple-50/30 pl-3 py-1.5 rounded-r-md",
-    label: "text-purple-800",
+    container: "border-2 border-l-8 border-violet-600 bg-violet-100/80 pl-3 pr-2 py-2 rounded-md shadow-sm",
+    label: "text-violet-950",
+    badge: "text-violet-800 bg-violet-200/80",
   },
   meal: {
-    container: "border-l-4 border-l-purple-500 bg-purple-50/30 pl-3 py-1.5 rounded-r-md",
-    label: "text-purple-800",
+    container: "border-2 border-l-8 border-indigo-600 bg-indigo-100/80 pl-3 pr-2 py-2 rounded-md shadow-sm",
+    label: "text-indigo-950",
+    badge: "text-indigo-800 bg-indigo-200/80",
   },
   "fries-tots": {
-    container: "border-l-4 border-l-amber-500 bg-amber-50/30 pl-3 py-1.5 rounded-r-md",
-    label: "text-amber-800",
+    container: "border-2 border-l-8 border-amber-500 bg-amber-100/80 pl-3 pr-2 py-2 rounded-md shadow-sm",
+    label: "text-amber-950",
+    badge: "text-amber-800 bg-amber-200/80",
   },
   "gyro-salad-protein": {
-    container: "border-l-4 border-l-orange-500 bg-orange-50/30 pl-3 py-1.5 rounded-r-md",
-    label: "text-orange-800",
+    container: "border-2 border-l-8 border-orange-600 bg-orange-100/90 pl-3 pr-2 py-2 rounded-md shadow-sm",
+    label: "text-orange-950",
+    badge: "text-orange-900 bg-orange-200/90",
   },
   "bowl-protein": {
-    container: "border-l-4 border-l-orange-500 bg-orange-50/30 pl-3 py-1.5 rounded-r-md",
-    label: "text-orange-800",
+    container: "border-2 border-l-8 border-sky-600 bg-sky-100/80 pl-3 pr-2 py-2 rounded-md shadow-sm",
+    label: "text-sky-950",
+    badge: "text-sky-800 bg-sky-200/80",
   },
   default: {
-    container: "border-l-4 border-l-accent bg-accent/5 pl-3 py-1.5 rounded-r-md",
-    label: "text-foreground",
+    container: "border-2 border-l-8 border-slate-500 bg-slate-100/80 pl-3 pr-2 py-2 rounded-md shadow-sm",
+    label: "text-slate-950",
+    badge: "text-slate-700 bg-slate-200/80",
   },
 };
 
@@ -86,7 +95,7 @@ const ModifierSelector = ({ groups, selected, onChange, layout = "default" }: Mo
               {group.label}
             </label>
             <span
-              className={`uppercase tracking-wider font-sans font-semibold text-muted-foreground shrink-0 ${isPos ? "text-xs" : "text-[9px]"}`}
+              className={`uppercase tracking-wider font-sans font-semibold shrink-0 rounded px-1.5 py-0.5 ${isPos ? `text-xs ${palette!.badge}` : "text-[9px] text-muted-foreground"}`}
             >
               {group.required ? "Req" : "Opt"}
             </span>
@@ -132,7 +141,7 @@ const ModifierSelector = ({ groups, selected, onChange, layout = "default" }: Mo
             {group.label}
           </h4>
           <span
-            className={`uppercase tracking-wider font-sans font-semibold text-muted-foreground shrink-0 text-right ${isPos ? "text-xs" : "text-[9px]"}`}
+            className={`uppercase tracking-wider font-sans font-semibold shrink-0 text-right rounded px-1.5 py-0.5 ${isPos ? `text-xs ${palette!.badge}` : "text-[9px] text-muted-foreground"}`}
           >
             {group.required ? "Req" : "Opt"} · max {group.maxSelect}
           </span>

@@ -122,10 +122,23 @@ const POSPage = () => {
   const switchedToCashRef = useRef(false);
   const checkoutLockRef = useRef(false);
   const blockedCardRetryRef = useRef(false);
+  /** Bumped when staff aborts an in-flight card sale so a late approve voids instead of saving. */
+  const saleSessionRef = useRef(0);
   const pendingOrderIdRef = useRef<string | null>(null);
   const cartEndRef = useRef<HTMLDivElement>(null);
-  const [paymentRecovery, setPaymentRecovery] = useState<{ reqTxnId: string; orderId?: string } | null>(null);
-  const [unpaidRecovery, setUnpaidRecovery] = useState<{ orderId: string; tag: string; total: number; reqTxnId: string } | null>(null);
+  const [paymentRecovery, setPaymentRecovery] = useState<{
+    reqTxnId: string;
+    orderId?: string;
+    /** True when terminal already approved and only Firestore save failed — retrying Card will double-charge. */
+    knownApproved?: boolean;
+  } | null>(null);
+  const [unpaidRecovery, setUnpaidRecovery] = useState<{
+    orderId: string;
+    tag: string;
+    total: number;
+    reqTxnId: string;
+    knownApproved?: boolean;
+  } | null>(null);
   const [unpaidInFlight, setUnpaidInFlight] = useState<{ orderId: string; txnId: string | null } | null>(null);
   const [unpaidCashFallback, setUnpaidCashFallback] = useState<{ orderId: string; tag: string; total: number } | null>(null);
   const [newOrderCashConfirm, setNewOrderCashConfirm] = useState(false);
@@ -324,9 +337,16 @@ const POSPage = () => {
     tag: string,
     orderId: string,
     orderTotal: number,
+    /** When save fails, reopen recovery so staff can retry without a second charge. */
+    recoveryTxnId?: string | null,
+    /** Sale session captured at publish time — ignore/void if staff aborted mid-flight. */
+    saleSession?: number,
   ) => {
-    if (switchedToCashRef.current) {
-      voidStrayCardCharge(result);
+    if (
+      switchedToCashRef.current ||
+      (saleSession !== undefined && saleSession !== saleSessionRef.current)
+    ) {
+      await voidStrayCardCharge(result);
       return;
     }
     try {
@@ -343,11 +363,16 @@ const POSPage = () => {
       resetOrder();
     } catch (e) {
       checkoutLockRef.current = true;
+      if (recoveryTxnId) {
+        setPaymentRecovery({ reqTxnId: recoveryTxnId, orderId, knownApproved: true });
+      }
       toast.error(
-        "Card was approved but saving the order failed — do NOT charge again. Tap Payment went through or call support.",
+        "Card was approved but saving the order failed — do NOT charge again. Tap Payment went through to retry save.",
         { duration: 8000 }
       );
-      throw e;
+      const err = e instanceof Error ? e : new Error(String(e));
+      (err as Error & { openedPaymentRecovery?: boolean }).openedPaymentRecovery = !!recoveryTxnId;
+      throw err;
     }
   };
 
@@ -385,15 +410,26 @@ const POSPage = () => {
     toast.success(`${order.customer_name || `Order #${order.id.slice(0, 6).toUpperCase()}`} loaded — ready to checkout`, { duration: 2000 });
   };
 
-  const dismissPaymentRecovery = (cancelTxn: boolean) => {
-    if (cancelTxn && paymentRecovery?.reqTxnId) {
-      cancelValorTransaction(selectedEpi, selectedAppKey, paymentRecovery.reqTxnId);
-    }
+  const dismissPaymentRecovery = async (cancelTxn: boolean) => {
+    const reqTxnId = paymentRecovery?.reqTxnId;
+    const knownApproved = !!paymentRecovery?.knownApproved;
     setPaymentRecovery(null);
     checkoutLockRef.current = false;
-    blockedCardRetryRef.current = false;
     setIsProcessing(false);
     setInFlightTxnId(null);
+    // After a known approve + save-fail, never unlock Card retry — cancel cannot reverse a settled sale.
+    if (knownApproved) {
+      blockedCardRetryRef.current = true;
+      toast.error(
+        "Card already charged — do NOT tap Card again. Use Payment went through, Pending Payments, or void on the terminal.",
+        { duration: 10000 }
+      );
+    } else {
+      blockedCardRetryRef.current = false;
+    }
+    if (cancelTxn && reqTxnId) {
+      await cancelValorTransaction(selectedEpi, selectedAppKey, reqTxnId);
+    }
   };
 
   const handleCheckout = async () => {
@@ -406,6 +442,8 @@ const POSPage = () => {
     switchedToCashRef.current = false;
     setIsProcessing(true);
     let orderId: string | null = null;
+    let reqTxnId: string | null = null;
+    const saleSession = ++saleSessionRef.current;
     const cardTotal = computeTotals(totalPrice, "card").total;
     let awaitingRecovery = false;
     try {
@@ -426,10 +464,13 @@ const POSPage = () => {
         lineItems,
         epi: selectedEpi,
         appkey: selectedAppKey,
-        onTxnId: (id) => setInFlightTxnId(id),
+        onTxnId: (id) => {
+          reqTxnId = id;
+          setInFlightTxnId(id);
+        },
       });
 
-      await finalizeCardPayment(result, `#${orderNumber}`, orderId, cardTotal);
+      await finalizeCardPayment(result, `#${orderNumber}`, orderId, cardTotal, reqTxnId, saleSession);
     } catch (error) {
       if (switchedToCashRef.current) return;
       if (error instanceof ValorCancelledError) {
@@ -441,6 +482,11 @@ const POSPage = () => {
         setIsProcessing(false);
         setPaymentRecovery({ reqTxnId: error.reqTxnId, orderId: orderId ?? loadedPendingOrderId ?? undefined });
         toast.error("Timed out waiting for terminal — check if payment went through before retrying", { duration: 5000 });
+        return;
+      }
+      if ((error as Error & { openedPaymentRecovery?: boolean })?.openedPaymentRecovery) {
+        awaitingRecovery = true;
+        setIsProcessing(false);
         return;
       }
       console.error("POS checkout error:", error);
@@ -456,30 +502,38 @@ const POSPage = () => {
 
   const handleRecoverPayment = async () => {
     if (!paymentRecovery || !selectedEpi || !selectedAppKey) return;
+    // Snapshot — do not read paymentRecovery again in finally (stale closure deadlock).
+    const recovery = paymentRecovery;
     checkoutLockRef.current = true;
     setIsProcessing(true);
-    const orderId = paymentRecovery.orderId ?? loadedPendingOrderId;
+    const orderId = recovery.orderId ?? loadedPendingOrderId;
     const cardTotal = computeTotals(totalPrice, "card").total;
+    let recovered = false;
     try {
       const result = await recoverValorTransaction(
         selectedEpi,
         selectedAppKey,
-        paymentRecovery.reqTxnId,
+        recovery.reqTxnId,
       );
       if (!orderId) throw new Error("Order record missing — check Pending Payments");
+      // Persist first; only clear recovery UI after save succeeds.
+      await finalizeCardPayment(result, `#${orderNumber}`, orderId, cardTotal, recovery.reqTxnId);
       setPaymentRecovery(null);
-      await finalizeCardPayment(result, `#${orderNumber}`, orderId, cardTotal);
+      recovered = true;
     } catch (error) {
       if (error instanceof ValorCancelledError) {
-        dismissPaymentRecovery(false);
+        void dismissPaymentRecovery(false);
         setCashFallbackOpen(true);
         return;
       }
-      toast.error(error instanceof Error ? error.message : "Still waiting on terminal");
+      // Keep recovery modal open; avoid duplicate toast when finalize already explained save-fail.
+      if (!(error as Error & { openedPaymentRecovery?: boolean })?.openedPaymentRecovery) {
+        toast.error(error instanceof Error ? error.message : "Still waiting on terminal");
+      }
     } finally {
-      if (!paymentRecovery) {
+      setIsProcessing(false);
+      if (recovered) {
         checkoutLockRef.current = false;
-        setIsProcessing(false);
         setInFlightTxnId(null);
       }
     }
@@ -487,19 +541,25 @@ const POSPage = () => {
 
   const handleSwitchToCash = async () => {
     switchedToCashRef.current = true;
-    const toCancel = inFlightTxnId;
+    saleSessionRef.current += 1; // invalidate any in-flight card finalize
+    const toCancel = inFlightTxnId ?? paymentRecovery?.reqTxnId ?? null;
     setInFlightTxnId(null);
     setIsProcessing(false);
-    dismissPaymentRecovery(true);
+    setPaymentRecovery(null);
+    blockedCardRetryRef.current = false;
+    checkoutLockRef.current = false;
+    // Await cancel so a late card approve is less likely to land after cash save.
     if (toCancel) {
-      cancelValorTransaction(selectedEpi, selectedAppKey, toCancel);
+      await cancelValorTransaction(selectedEpi, selectedAppKey, toCancel);
     }
     try {
       const savedId = pendingOrderIdRef.current ?? loadedPendingOrderId ?? (await ensureUnpaidPosOrder());
       await markOrderPaid(savedId);
       toast.success("Order saved as cash payment", { duration: 2000 });
       askToPrint(savedId, `#${orderNumber}`, computeTotals(totalPrice, "cash").total);
-      resetOrder();
+      // Do NOT clear switchedToCashRef here — resetOrder used to, which let a late
+      // card approve persist instead of voiding. Guard stays until next Card checkout.
+      resetOrder({ keepSwitchedToCash: true });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to save order");
     }
@@ -510,6 +570,8 @@ const POSPage = () => {
     checkoutLockRef.current = true;
     setUnpaidInFlight({ orderId: order.id, txnId: null });
     let awaitingRecovery = false;
+    let reqTxnId: string | null = null;
+    let saveAfterChargeFailed = false;
     try {
       const result = await sendCreditSale({
         amountCents: dollarsToCents(order.total),
@@ -518,22 +580,43 @@ const POSPage = () => {
         invoiceNumber: order.id,
         epi: selectedEpi,
         appkey: selectedAppKey,
-        onTxnId: (id) => setUnpaidInFlight({ orderId: order.id, txnId: id }),
+        onTxnId: (id) => {
+          reqTxnId = id;
+          setUnpaidInFlight({ orderId: order.id, txnId: id });
+        },
       });
 
       if (unpaidSwitchedRef.current.has(order.id)) {
-        voidStrayCardCharge(result);
+        await voidStrayCardCharge(result);
         return;
       }
 
-      const tenderedCash = await persistCardApproval(order.id, result);
-      if (tenderedCash) {
-        toast.success(`Cash collected at terminal for ${tag}`, { duration: 2000 });
-      } else {
-        toast.success(`Card payment for ${tag} — ${result.ISSUER} ${result.MASKED_PAN}`, { duration: 2000 });
+      try {
+        const tenderedCash = await persistCardApproval(order.id, result);
+        if (tenderedCash) {
+          toast.success(`Cash collected at terminal for ${tag}`, { duration: 2000 });
+        } else {
+          toast.success(`Card payment for ${tag} — ${result.ISSUER} ${result.MASKED_PAN}`, { duration: 2000 });
+        }
+        askToPrint(order.id, tag, order.total);
+        setExpandedUnpaidOrder(null);
+      } catch {
+        saveAfterChargeFailed = true;
+        if (reqTxnId) {
+          awaitingRecovery = true;
+          setUnpaidRecovery({ orderId: order.id, tag, total: order.total, reqTxnId, knownApproved: true });
+          toast.error(
+            "Card approved but saving failed — do NOT charge again. Tap Payment went through.",
+            { duration: 8000 }
+          );
+        } else {
+          // Can't open recovery without txn id — don't leave checkout locked forever.
+          toast.error(
+            "Card approved but saving failed — do NOT charge again. Refresh Pending Payments and mark paid, or void on the terminal.",
+            { duration: 10000 }
+          );
+        }
       }
-      askToPrint(order.id, tag, order.total);
-      setExpandedUnpaidOrder(null);
     } catch (err) {
       if (unpaidSwitchedRef.current.has(order.id)) {
         unpaidSwitchedRef.current.delete(order.id);
@@ -549,28 +632,36 @@ const POSPage = () => {
         toast.error("Timed out — check terminal before retrying card", { duration: 5000 });
         return;
       }
-      toast.error(err instanceof Error ? err.message : "Card payment failed");
+      if (!saveAfterChargeFailed) {
+        toast.error(err instanceof Error ? err.message : "Card payment failed");
+      }
     } finally {
       if (!awaitingRecovery && !unpaidSwitchedRef.current.has(order.id)) {
         checkoutLockRef.current = false;
         setUnpaidInFlight((cur) => (cur?.orderId === order.id ? null : cur));
+      } else if (awaitingRecovery) {
+        setUnpaidInFlight(null);
       }
     }
   };
 
   const handleRecoverUnpaidPayment = async () => {
     if (!unpaidRecovery || !selectedEpi || !selectedAppKey) return;
+    const recovery = unpaidRecovery;
     checkoutLockRef.current = true;
-    setUnpaidInFlight({ orderId: unpaidRecovery.orderId, txnId: unpaidRecovery.reqTxnId });
+    setUnpaidInFlight({ orderId: recovery.orderId, txnId: recovery.reqTxnId });
+    let recovered = false;
     try {
       const result = await recoverValorTransaction(
         selectedEpi,
         selectedAppKey,
-        unpaidRecovery.reqTxnId,
+        recovery.reqTxnId,
       );
-      const { orderId, tag, total } = unpaidRecovery;
-      setUnpaidRecovery(null);
+      const { orderId, tag, total } = recovery;
+      // Persist first; only dismiss recovery after save succeeds.
       const tenderedCash = await persistCardApproval(orderId, result);
+      setUnpaidRecovery(null);
+      recovered = true;
       toast.success(
         tenderedCash
           ? `Cash collected at terminal for ${tag}`
@@ -582,22 +673,31 @@ const POSPage = () => {
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Still waiting on terminal");
     } finally {
-      checkoutLockRef.current = false;
       setUnpaidInFlight(null);
+      if (recovered) {
+        checkoutLockRef.current = false;
+      }
+      // On failure keep lock while unpaidRecovery stays open (blocks second Card tap).
     }
   };
 
   const handleUnpaidSwitchToCash = async (orderId: string, tag: string) => {
     unpaidSwitchedRef.current.add(orderId);
-    const txnId = unpaidInFlight?.orderId === orderId ? unpaidInFlight.txnId : null;
+    const txnId =
+      (unpaidInFlight?.orderId === orderId ? unpaidInFlight.txnId : null) ??
+      (unpaidRecovery?.orderId === orderId ? unpaidRecovery.reqTxnId : null);
     setUnpaidInFlight(null);
-    if (txnId) cancelValorTransaction(selectedEpi, selectedAppKey, txnId);
+    setUnpaidRecovery(null);
+    if (txnId) {
+      await cancelValorTransaction(selectedEpi, selectedAppKey, txnId);
+    }
     try {
       await markOrderPaid(orderId);
       toast.success(`Cash payment for ${tag}`, { duration: 2000 });
       const o = orderHistory.find((x) => x.id === orderId);
       askToPrint(orderId, tag, o?.total ?? 0);
       setExpandedUnpaidOrder(null);
+      checkoutLockRef.current = false;
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to mark paid");
     }
@@ -630,7 +730,7 @@ const POSPage = () => {
     }
   };
 
-  const resetOrder = () => {
+  const resetOrder = (opts?: { keepSwitchedToCash?: boolean }) => {
     setCart([]);
     setSelectedItem(null);
     setItemQty(1);
@@ -642,7 +742,10 @@ const POSPage = () => {
     setUnpaidRecovery(null);
     setIsProcessing(false);
     checkoutLockRef.current = false;
-    switchedToCashRef.current = false;
+    // Keep the guard after cash-while-card-in-flight so a late approve voids instead of saving.
+    if (!opts?.keepSwitchedToCash) {
+      switchedToCashRef.current = false;
+    }
     blockedCardRetryRef.current = false;
     setOrderNumber(Math.floor(100 + Math.random() * 900));
   };
@@ -661,8 +764,12 @@ const POSPage = () => {
 
     return (
       <>
-        <div className="fixed inset-0 bg-foreground/40 z-50" onClick={() => { setSelectedItem(null); setSelectedMods({}); setItemQty(1); }} />
-        <div className="fixed inset-0 z-50 flex flex-col bg-background border-0 sm:border border-border sm:inset-2 sm:rounded-sm overflow-hidden shadow-2xl max-h-[100dvh]">
+        {/* Dim only the menu area — leave the cart/checkout panel visible on the right */}
+        <div
+          className="fixed inset-y-0 left-0 right-80 lg:right-96 bg-foreground/40 z-50"
+          onClick={() => { setSelectedItem(null); setSelectedMods({}); setItemQty(1); }}
+        />
+        <div className="fixed inset-y-0 left-0 right-80 lg:right-96 z-50 flex flex-col bg-background border-r-2 border-border overflow-hidden shadow-2xl max-h-[100dvh]">
           <header className="flex items-center gap-2 px-3 py-2 border-b border-border shrink-0">
             {selectedItem.image ? (
               <img
@@ -1358,6 +1465,8 @@ const POSPage = () => {
                         const cashAmt = parseFloat(posSplitCash) || 0;
                         const cardAmt = Math.max(0, total - cashAmt);
                         let orderId: string | null = null;
+                        let reqTxnId: string | null = null;
+                        const saleSession = ++saleSessionRef.current;
                         let awaitingRecovery = false;
                         try {
                           orderId = await ensureUnpaidPosOrder();
@@ -1369,13 +1478,33 @@ const POSPage = () => {
                               invoiceNumber: orderId,
                               epi: selectedEpi,
                               appkey: selectedAppKey,
-                              onTxnId: (id) => setInFlightTxnId(id),
+                              onTxnId: (id) => {
+                                reqTxnId = id;
+                                setInFlightTxnId(id);
+                              },
                             });
-                            if (switchedToCashRef.current) {
-                              voidStrayCardCharge(result);
+                            if (
+                              switchedToCashRef.current ||
+                              saleSession !== saleSessionRef.current
+                            ) {
+                              await voidStrayCardCharge(result);
                               return;
                             }
-                            await persistCardApproval(orderId, result);
+                            try {
+                              await persistCardApproval(orderId, result);
+                            } catch (saveErr) {
+                              if (reqTxnId) {
+                                awaitingRecovery = true;
+                                setIsProcessing(false);
+                                setPaymentRecovery({ reqTxnId, orderId, knownApproved: true });
+                                toast.error(
+                                  "Card was approved but saving failed — do NOT charge again. Tap Payment went through.",
+                                  { duration: 8000 }
+                                );
+                                return;
+                              }
+                              throw saveErr;
+                            }
                           } else {
                             await markOrderPaid(orderId);
                           }
@@ -1386,6 +1515,10 @@ const POSPage = () => {
                           resetOrder();
                         } catch (err) {
                           if (switchedToCashRef.current) return;
+                          if (err instanceof ValorCancelledError) {
+                            setCashFallbackOpen(true);
+                            return;
+                          }
                           if (err instanceof ValorTimeoutError) {
                             awaitingRecovery = true;
                             setIsProcessing(false);
@@ -1429,13 +1562,17 @@ const POSPage = () => {
                       <Banknote className="w-4 h-4" /> Pay Cash Instead
                     </button>
                     <button
-                      onClick={() => {
-                        switchedToCashRef.current = true; // stop the in-flight handler from saving a duplicate card order
-                        checkoutLockRef.current = false;
+                      onClick={async () => {
+                        // Abort in-flight card; bump session so a late approve voids instead of saving.
+                        switchedToCashRef.current = true;
+                        saleSessionRef.current += 1;
                         const toCancel = inFlightTxnId;
                         setInFlightTxnId(null);
                         setIsProcessing(false);
-                        if (toCancel) cancelValorTransaction(selectedEpi, selectedAppKey, toCancel);
+                        if (toCancel) {
+                          await cancelValorTransaction(selectedEpi, selectedAppKey, toCancel);
+                        }
+                        checkoutLockRef.current = false;
                         setPosSplitMode(true);
                         setPosSplitCash((computeTotals(totalPrice, "cash").total / 2).toFixed(2));
                       }}
@@ -1709,15 +1846,24 @@ const POSPage = () => {
                 Payment went through
               </button>
               <button
-                onClick={() => {
-                  cancelValorTransaction(selectedEpi, selectedAppKey, unpaidRecovery.reqTxnId);
+                onClick={async () => {
+                  if (unpaidRecovery.knownApproved) {
+                    toast.error(
+                      "Card already charged — do NOT retry Card. Tap Payment went through or void on the terminal.",
+                      { duration: 10000 }
+                    );
+                    return;
+                  }
+                  const reqTxnId = unpaidRecovery.reqTxnId;
                   setUnpaidRecovery(null);
                   checkoutLockRef.current = false;
                   setUnpaidInFlight(null);
+                  await cancelValorTransaction(selectedEpi, selectedAppKey, reqTxnId);
                 }}
-                className="py-2.5 bg-muted text-muted-foreground font-sans font-bold text-xs uppercase tracking-wider rounded-sm hover:bg-muted/80 active:scale-[0.96]"
+                disabled={!!unpaidInFlight}
+                className="py-2.5 bg-muted text-muted-foreground font-sans font-bold text-xs uppercase tracking-wider rounded-sm hover:bg-muted/80 active:scale-[0.96] disabled:opacity-50"
               >
-                No payment — try card again
+                {unpaidRecovery.knownApproved ? "Do not retry card" : "No payment — try card again"}
               </button>
             </div>
           </div>
@@ -1728,9 +1874,19 @@ const POSPage = () => {
       {paymentRecovery && (
         <div className="fixed inset-0 bg-foreground/40 z-[65] flex items-center justify-center p-4">
           <div className="bg-background rounded-md shadow-2xl max-w-sm w-full p-5 border-2 border-amber-400">
-            <h3 className="font-display text-lg font-bold text-foreground mb-1">Check terminal before retrying</h3>
+            <h3 className="font-display text-lg font-bold text-foreground mb-1">
+              {paymentRecovery.knownApproved ? "Card charged — finish saving order" : "Check terminal before retrying"}
+            </h3>
             <p className="text-sm text-muted-foreground mb-4">
-              The POS lost contact with the terminal. If the customer already paid on the card reader, tap <strong>Payment went through</strong> — do <strong>not</strong> run card again or you may double-charge.
+              {paymentRecovery.knownApproved ? (
+                <>
+                  The card reader already approved this payment but the POS failed to save. Tap <strong>Payment went through</strong> to retry save — do <strong>not</strong> run card again.
+                </>
+              ) : (
+                <>
+                  The POS lost contact with the terminal. If the customer already paid on the card reader, tap <strong>Payment went through</strong> — do <strong>not</strong> run card again or you may double-charge.
+                </>
+              )}
             </p>
             <div className="grid grid-cols-1 gap-2">
               <button
@@ -1740,23 +1896,27 @@ const POSPage = () => {
               >
                 {isProcessing ? "Checking terminal…" : "Payment went through"}
               </button>
-              <button
-                onClick={() => {
-                  dismissPaymentRecovery(true);
-                  setCashFallbackOpen(true);
-                }}
-                disabled={isProcessing}
-                className="py-2.5 bg-primary text-primary-foreground font-sans font-bold text-xs uppercase tracking-wider rounded-sm hover:opacity-90 active:scale-[0.96] disabled:opacity-50"
-              >
-                Customer paid cash instead
-              </button>
-              <button
-                onClick={() => dismissPaymentRecovery(true)}
-                disabled={isProcessing}
-                className="py-2.5 bg-muted text-muted-foreground font-sans font-bold text-xs uppercase tracking-wider rounded-sm hover:bg-muted/80 active:scale-[0.96] disabled:opacity-50"
-              >
-                No payment — try card again
-              </button>
+              {!paymentRecovery.knownApproved && (
+                <>
+                  <button
+                    onClick={async () => {
+                      await dismissPaymentRecovery(true);
+                      setCashFallbackOpen(true);
+                    }}
+                    disabled={isProcessing}
+                    className="py-2.5 bg-primary text-primary-foreground font-sans font-bold text-xs uppercase tracking-wider rounded-sm hover:opacity-90 active:scale-[0.96] disabled:opacity-50"
+                  >
+                    Customer paid cash instead
+                  </button>
+                  <button
+                    onClick={() => dismissPaymentRecovery(true)}
+                    disabled={isProcessing}
+                    className="py-2.5 bg-muted text-muted-foreground font-sans font-bold text-xs uppercase tracking-wider rounded-sm hover:bg-muted/80 active:scale-[0.96] disabled:opacity-50"
+                  >
+                    No payment — try card again
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </div>
