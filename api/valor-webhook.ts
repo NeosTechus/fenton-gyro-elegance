@@ -1,21 +1,30 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { adminDb } from "./_lib/firebase-admin.js";
 import { FieldValue } from "firebase-admin/firestore";
 
 /**
  * POST /api/valor-webhook
  *
- * Valor ePage callbacks. Valor cannot send custom auth headers (e.g.
- * X-Webhook-Secret), so we do NOT trust the POST body alone — a forged
- * "approved" payload could otherwise mark any order paid.
+ * Valor ePage / transaction callbacks.
  *
- * Instead, on every claimed approval we re-verify with Valor's
- * transaction_inquiry API using our server credentials. Only then do we
- * flip payment_status via the Admin SDK.
+ * Auth (Valor HMAC — preferred once enabled in portal):
+ *   Headers: Valor-Timestamp + Valor-Signature
+ *   Signature = HMAC-SHA256(JSON.stringify(body) + timestamp, WEBHOOK_SECRET)
+ *   Secret comes from Settings → Webhook Configuration (paste into Vercel WEBHOOK_SECRET).
+ *
+ * Defense in depth: even with a valid signature, claimed approvals are
+ * re-checked via Valor transaction_inquiry before flipping payment_status.
+ *
+ * @see https://valorapi.readme.io/reference/webhook-user-guide
  */
 
 const VALOR_API_URL = process.env.VALOR_API_URL;
 const VALOR_APPID = process.env.VALOR_APPID;
+/** Secret key from Valor Settings → Webhook Configuration (Authentication). */
+const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || process.env.VALOR_WEBHOOK_SECRET;
+
+const MAX_TIMESTAMP_SKEW_MS = 10 * 60 * 1000; // 10 minutes
 
 // Strip "-NNNNNN" 6-digit timestamp suffix that create-valor-checkout.ts
 // appends to invoice_no. Firestore order id is everything before that suffix.
@@ -29,6 +38,52 @@ function stripInvoiceSuffix(raw: string): string {
 function maskError(message: unknown): string {
   if (typeof message !== "string") return "Internal error";
   return message.length > 200 ? "Internal error" : message;
+}
+
+function headerValue(req: VercelRequest, name: string): string | undefined {
+  const v = req.headers[name.toLowerCase()];
+  if (Array.isArray(v)) return v[0];
+  return typeof v === "string" ? v : undefined;
+}
+
+/**
+ * Verify Valor-Signature / Valor-Timestamp per Valor Webhook User Guide.
+ * Returns false if secret is configured but signature is missing/invalid.
+ * Returns true if secret is not yet configured (portal not set up) — inquiry
+ * verification still protects paid flips.
+ */
+function verifyValorHmac(req: VercelRequest, body: unknown): { ok: boolean; reason?: string } {
+  if (!WEBHOOK_SECRET) {
+    return { ok: true, reason: "secret_not_configured" };
+  }
+
+  const timestamp = headerValue(req, "valor-timestamp");
+  const signature = headerValue(req, "valor-signature");
+  if (!timestamp || !signature) {
+    return { ok: false, reason: "missing_signature_headers" };
+  }
+
+  const tsMs = Date.parse(timestamp);
+  if (Number.isNaN(tsMs) || Math.abs(Date.now() - tsMs) > MAX_TIMESTAMP_SKEW_MS) {
+    return { ok: false, reason: "timestamp_skew" };
+  }
+
+  // Valor: HMAC-SHA256(json_encode(payload) + timestamp, secret)
+  // Node JSON.stringify is compact (matches their PHP json_encode default).
+  const payload = JSON.stringify(body) + timestamp;
+  const expected = createHmac("sha256", WEBHOOK_SECRET).update(payload).digest("hex");
+
+  try {
+    const a = Buffer.from(expected, "utf8");
+    const b = Buffer.from(signature, "utf8");
+    if (a.length !== b.length || !timingSafeEqual(a, b)) {
+      return { ok: false, reason: "signature_mismatch" };
+    }
+  } catch {
+    return { ok: false, reason: "signature_compare_error" };
+  }
+
+  return { ok: true };
 }
 
 function isApprovedStatus(status: unknown): boolean {
@@ -103,7 +158,10 @@ async function verifyWithValor(opts: {
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    "Content-Type, Valor-Timestamp, Valor-Signature",
+  );
 
   if (req.method === "OPTIONS") {
     return res.status(204).end();
@@ -118,6 +176,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (!body || typeof body !== "object") {
       return res.status(400).json({ error: "Invalid request body" });
+    }
+
+    const hmac = verifyValorHmac(req, body);
+    if (!hmac.ok) {
+      console.warn("[valor-webhook] HMAC rejected", { reason: hmac.reason });
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    if (hmac.reason === "secret_not_configured") {
+      console.warn(
+        "[valor-webhook] WEBHOOK_SECRET not set — relying on Valor inquiry only. " +
+          "Paste Valor Webhook Authentication secret into Vercel WEBHOOK_SECRET when available.",
+      );
     }
 
     const rawInvoice: string | undefined =
