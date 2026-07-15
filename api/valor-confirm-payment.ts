@@ -126,15 +126,29 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(200).json({ ok: true, alreadyPaid: true, orderId });
   }
 
+  // Prefer the exact invoice stored at checkout (includes -NNNNNN suffix).
+  const storedInvoice =
+    typeof initialData.valor_invoice_no === "string" ? initialData.valor_invoice_no : null;
+  const inquiryInvoice = storedInvoice || orderId;
+
   // Verify with Valor
   let valorResult: ValorStatusResult;
   try {
     valorResult = await queryValorStatus({
       appKey,
       epi,
-      orderId,
+      orderId: inquiryInvoice,
       rrn: rawRrn,
     });
+    // Fallback: try bare Firestore id if stored suffix invoice failed.
+    if (!valorResult.approved && inquiryInvoice !== orderId) {
+      valorResult = await queryValorStatus({
+        appKey,
+        epi,
+        orderId,
+        rrn: rawRrn,
+      });
+    }
   } catch (err) {
     console.error("[confirm-payment] valor query failed", err);
     return res.status(502).json({ ok: false, error: "Could not reach Valor" });

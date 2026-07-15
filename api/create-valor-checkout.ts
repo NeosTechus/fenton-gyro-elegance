@@ -1,5 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { rateLimit, isAllowedOrigin, setCors, errorResponse } from "./_lib/security.js";
+import { adminDb } from "./_lib/firebase-admin.js";
 
 /**
  * POST /api/create-valor-checkout
@@ -109,6 +110,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     formParams.append("product", sanitize(productDescription) || "Order");
     formParams.append("descriptor", "Fenton Gyro");
     formParams.append("customer_name", sanitize(customerName));
+
+    // Persist the exact Valor invoice so confirm/webhook inquiries match
+    // (Valor rejects lookups that omit the -NNNNNN uniqueness suffix).
+    if (invoiceNumber && typeof invoiceNumber === "string" && invoiceNumber.length >= 4) {
+      try {
+        await adminDb.collection("orders").doc(invoiceNumber).update({
+          valor_invoice_no: uniqueInvoice,
+        });
+      } catch (e) {
+        console.warn("[epage] could not store valor_invoice_no", e);
+      }
+    }
 
     // Debug — masked to avoid leaking full key in logs
     const mask = (s: string) => s.length <= 6 ? "***" : `${s.slice(0, 3)}…${s.slice(-3)} (len=${s.length})`;

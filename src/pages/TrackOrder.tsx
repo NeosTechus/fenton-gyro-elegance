@@ -46,39 +46,42 @@ const TrackOrder = () => {
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
 
-  // On first load after Valor ePage redirect, Valor appends rrn / auth_code /
-  // card_last4 as query params. We do NOT trust these to flip the order paid
-  // directly — that would let anyone forge payment by visiting
-  // /track/<id>?auth_code=DEADBEEF. Instead we hit /api/valor-confirm-payment,
-  // which independently queries Valor's transaction status before flipping.
-  //
-  // The Valor webhook (when registered in Valor's portal) marks orders paid
-  // via a separate path; both share the same idempotency check so a race is
-  // harmless. Sensitive params are stripped from the URL after submit so they
-  // aren't bookmarked/shared.
+  // After ePage, Valor may append rrn/auth_code — but those can also be missing.
+  // Always ask the server to verify with Valor (idempotent). Do not trust URL
+  // params alone to flip payment_status.
   const confirmedRef = useRef(false);
   useEffect(() => {
     if (!orderId || confirmedRef.current) return;
+    confirmedRef.current = true;
+
     const rrn = searchParams.get("rrn") || undefined;
     const authCode =
       searchParams.get("auth_code") || searchParams.get("authCode") || undefined;
-    const maskedPan =
-      searchParams.get("card_last4") || searchParams.get("masked_pan") || undefined;
-    if (!rrn && !authCode && !maskedPan) return;
 
-    confirmedRef.current = true;
+    const tryConfirm = (attempt: number) => {
+      fetch("/api/valor-confirm-payment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderId, rrn, auth_code: authCode }),
+      })
+        .then(async (res) => {
+          const data = await res.json().catch(() => ({}));
+          // Valor may still be settling — retry a few times.
+          if (data?.pending && attempt < 3) {
+            setTimeout(() => tryConfirm(attempt + 1), 2500 * attempt);
+          }
+        })
+        .catch((err) => console.error("valor-confirm-payment failed", err));
+    };
+    tryConfirm(1);
 
-    fetch("/api/valor-confirm-payment", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ orderId, rrn, auth_code: authCode }),
-    }).catch((err) => console.error("valor-confirm-payment failed", err));
-
-    const next = new URLSearchParams(searchParams);
-    ["rrn", "auth_code", "authCode", "card_last4", "masked_pan"].forEach((k) =>
-      next.delete(k),
-    );
-    setSearchParams(next, { replace: true });
+    if (searchParams.has("rrn") || searchParams.has("auth_code") || searchParams.has("authCode") || searchParams.has("card_last4") || searchParams.has("masked_pan")) {
+      const next = new URLSearchParams(searchParams);
+      ["rrn", "auth_code", "authCode", "card_last4", "masked_pan"].forEach((k) =>
+        next.delete(k),
+      );
+      setSearchParams(next, { replace: true });
+    }
   }, [orderId, searchParams, setSearchParams]);
 
   useEffect(() => {
