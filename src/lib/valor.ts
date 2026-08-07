@@ -168,24 +168,72 @@ export class ValorTimeoutError extends Error {
 // Valor wraps the terminal payload as { error_no, response: {...txn} } or
 // { error_no, payload: {...} }. STATE may come back as a number or string.
 const extractTxn = (data: any) =>
-  data?.response?.response || data?.response?.payload || data?.response;
+  data?.response?.response ||
+  data?.response?.payload ||
+  data?.response?.data ||
+  data?.payload ||
+  data?.response;
+
 const stateOf = (p: any) => (p?.STATE !== undefined ? String(p.STATE) : undefined);
 
-// A response is final when STATE=0 AND it carries a positive completion
-// signal — either MASKED_PAN (card sale) or a cash-tender marker
-// (TRAN_TYPE="Cash" / TRAN_MODE="6"). We avoid looser heuristics because
-// intermediate polling responses can also carry STATE=0 with partial
-// fields, and returning early leaves the txn live on the terminal —
-// which causes the next publish to fail with PROCESSING ERROR.
-const isFinalSuccess = (p: any) => {
+/**
+ * Final success only when STATE=0 AND a real completion signal from the reader.
+ * Do not treat bare STATE=0 as done — intermediate polls can look like that and
+ * returning early leaves the txn live (next sale → PROCESSING ERROR).
+ */
+export const isFinalSuccess = (p: any) => {
+  if (!p || typeof p !== "object") return false;
   if (stateOf(p) !== "0") return false;
   if (p?.MASKED_PAN) return true;
   if (/cash/i.test(String(p?.TRAN_TYPE || ""))) return true;
   if (String(p?.TRAN_MODE || "") === "6") return true;
-  const auth = String(p?.AUTH_RSP_TEXT || "");
+  const auth = String(p?.AUTH_RSP_TEXT || p?.AUTH_RESP_TEXT || "");
+  if (auth && /APPROV|OK|SUCCESS/i.test(auth) && (p?.CODE || p?.AUTH_CODE || p?.RRN)) return true;
   if (auth && /APPROV|OK|SUCCESS/i.test(auth)) return true;
   return false;
 };
+
+/** Persist last terminal approval so a refresh / late status gap doesn't lose card confirmation. */
+const APPROVAL_CACHE_PREFIX = "valorApproved:";
+
+export function cacheValorApproval(reqTxnId: string, result: ValorSuccessResponse): void {
+  if (!reqTxnId || typeof sessionStorage === "undefined") return;
+  try {
+    sessionStorage.setItem(
+      `${APPROVAL_CACHE_PREFIX}${reqTxnId}`,
+      JSON.stringify({ ...result, _cachedAt: Date.now() }),
+    );
+  } catch {
+    /* quota / private mode */
+  }
+}
+
+export function readCachedValorApproval(reqTxnId: string): ValorSuccessResponse | null {
+  if (!reqTxnId || typeof sessionStorage === "undefined") return null;
+  try {
+    const raw = sessionStorage.getItem(`${APPROVAL_CACHE_PREFIX}${reqTxnId}`);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    if (parsed._cachedAt && Date.now() - parsed._cachedAt > 24 * 60 * 60 * 1000) {
+      sessionStorage.removeItem(`${APPROVAL_CACHE_PREFIX}${reqTxnId}`);
+      return null;
+    }
+    delete parsed._cachedAt;
+    return parsed as ValorSuccessResponse;
+  } catch {
+    return null;
+  }
+}
+
+export function clearCachedValorApproval(reqTxnId: string): void {
+  if (!reqTxnId || typeof sessionStorage === "undefined") return;
+  try {
+    sessionStorage.removeItem(`${APPROVAL_CACHE_PREFIX}${reqTxnId}`);
+  } catch {
+    /* ignore */
+  }
+}
 
 async function pollValorUntilDone(
   epi: string,
@@ -212,7 +260,9 @@ async function pollValorUntilDone(
 
     const state = stateOf(txn);
     if (isFinalSuccess(txn)) {
-      return txn as ValorSuccessResponse;
+      const success = txn as ValorSuccessResponse;
+      cacheValorApproval(reqTxnId, success);
+      return success;
     }
     if (state === "-1") {
       const msg = (txn as ValorFailureResponse).ERROR_MSG || "Transaction failed";
@@ -224,12 +274,15 @@ async function pollValorUntilDone(
   throw new ValorTimeoutError(reqTxnId);
 }
 
-/** Continue polling an in-flight txn — use after a timeout if the terminal may still be processing. */
+/** Continue polling an in-flight txn — use after a timeout if the terminal may still be processing.
+ *  Note: once a txn is settled, Valor often stops returning a final success payload; callers that
+ *  already have staff confirmation should fall back to marking the order paid instead of polling forever.
+ */
 export function recoverValorTransaction(
   epi: string,
   appkey: string,
   reqTxnId: string,
-  maxMs = 90_000,
+  maxMs = 20_000,
 ) {
   return pollValorUntilDone(epi, appkey, reqTxnId, maxMs);
 }
@@ -267,7 +320,9 @@ export async function sendValorTransaction(
   // Some publish responses may already include the final result
   const immediate = extractTxn(publishData);
   if (isFinalSuccess(immediate)) {
-    return immediate as ValorSuccessResponse;
+    const success = immediate as ValorSuccessResponse;
+    if (reqTxnId) cacheValorApproval(reqTxnId, success);
+    return success;
   }
   if (stateOf(immediate) === "-1") {
     throw new Error((immediate as ValorFailureResponse).ERROR_MSG || "Transaction failed");

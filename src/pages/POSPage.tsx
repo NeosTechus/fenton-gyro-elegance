@@ -38,6 +38,10 @@ import {
   recoverValorTransaction,
   sendVoid,
   warmupValor,
+  cacheValorApproval,
+  readCachedValorApproval,
+  clearCachedValorApproval,
+  type ValorSuccessResponse,
 } from "@/lib/valor";
 import { computeTotals } from "@/lib/pricing";
 import { ValorEPI, getEPIs } from "@/lib/valor-epi";
@@ -122,6 +126,8 @@ const POSPage = () => {
   const switchedToCashRef = useRef(false);
   const checkoutLockRef = useRef(false);
   const blockedCardRetryRef = useRef(false);
+  /** Prevents double-tap on Payment went through while recovery is in flight. */
+  const recoveryInFlightRef = useRef(false);
   /** Bumped when staff aborts an in-flight card sale so a late approve voids instead of saving. */
   const saleSessionRef = useRef(0);
   const pendingOrderIdRef = useRef<string | null>(null);
@@ -131,6 +137,8 @@ const POSPage = () => {
     orderId?: string;
     /** True when terminal already approved and only Firestore save failed — retrying Card will double-charge. */
     knownApproved?: boolean;
+    /** Cached approval — retry save without re-polling a settled txn that status no longer returns. */
+    approvedResult?: ValorSuccessResponse;
   } | null>(null);
   const [unpaidRecovery, setUnpaidRecovery] = useState<{
     orderId: string;
@@ -138,6 +146,7 @@ const POSPage = () => {
     total: number;
     reqTxnId: string;
     knownApproved?: boolean;
+    approvedResult?: ValorSuccessResponse;
   } | null>(null);
   const [unpaidInFlight, setUnpaidInFlight] = useState<{ orderId: string; txnId: string | null } | null>(null);
   const [unpaidCashFallback, setUnpaidCashFallback] = useState<{ orderId: string; tag: string; total: number } | null>(null);
@@ -288,7 +297,8 @@ const POSPage = () => {
     });
     setLoadedPendingOrderId(id);
     pendingOrderIdRef.current = id;
-    blockedCardRetryRef.current = true;
+    // Do NOT set blockedCardRetry here — publish/cancel failures must still allow
+    // a safe Card retry. Lock only on timeout / knownApproved (already charged).
     return id;
   };
 
@@ -351,6 +361,7 @@ const POSPage = () => {
     }
     try {
       const tenderedCash = await persistCardApproval(orderId, result);
+      if (recoveryTxnId) clearCachedValorApproval(recoveryTxnId);
       if (tenderedCash) {
         toast.success(`Cash collected at terminal — $${orderTotal.toFixed(2)}`, { duration: 2000 });
       } else {
@@ -363,8 +374,15 @@ const POSPage = () => {
       resetOrder();
     } catch (e) {
       checkoutLockRef.current = true;
+      blockedCardRetryRef.current = true;
       if (recoveryTxnId) {
-        setPaymentRecovery({ reqTxnId: recoveryTxnId, orderId, knownApproved: true });
+        cacheValorApproval(recoveryTxnId, result);
+        setPaymentRecovery({
+          reqTxnId: recoveryTxnId,
+          orderId,
+          knownApproved: true,
+          approvedResult: result,
+        });
       }
       toast.error(
         "Card was approved but saving the order failed — do NOT charge again. Tap Payment went through to retry save.",
@@ -435,7 +453,12 @@ const POSPage = () => {
   const handleCheckout = async () => {
     if (cart.length === 0 || checkoutLockRef.current || paymentRecovery) return;
     if (blockedCardRetryRef.current) {
-      toast.error("Previous card attempt may still be processing — use the payment prompt or clear the cart.", { duration: 4000 });
+      toast.error(
+        paymentRecovery
+          ? "Resolve the payment recovery dialog first — do not charge again"
+          : "Previous card attempt may still be processing — use the payment prompt or clear the cart.",
+        { duration: 4000 }
+      );
       return;
     }
     checkoutLockRef.current = true;
@@ -470,6 +493,7 @@ const POSPage = () => {
         },
       });
 
+      if (reqTxnId) cacheValorApproval(reqTxnId, result);
       await finalizeCardPayment(result, `#${orderNumber}`, orderId, cardTotal, reqTxnId, saleSession);
     } catch (error) {
       if (switchedToCashRef.current) return;
@@ -479,8 +503,13 @@ const POSPage = () => {
       }
       if (error instanceof ValorTimeoutError) {
         awaitingRecovery = true;
+        blockedCardRetryRef.current = true;
         setIsProcessing(false);
-        setPaymentRecovery({ reqTxnId: error.reqTxnId, orderId: orderId ?? loadedPendingOrderId ?? undefined });
+        setInFlightTxnId(null);
+        setPaymentRecovery({
+          reqTxnId: error.reqTxnId,
+          orderId: orderId ?? loadedPendingOrderId ?? undefined,
+        });
         toast.error("Timed out waiting for terminal — check if payment went through before retrying", { duration: 5000 });
         return;
       }
@@ -500,25 +529,84 @@ const POSPage = () => {
     }
   };
 
+  /** True when poll failure means status is gone / settled — safe to mark paid on staff attestation.
+   *  Do NOT treat PROCESSING ERROR as paid (often means terminal busy / second publish rejected). */
+  const isSettledOrGonePollError = (err: unknown) => {
+    if (err instanceof ValorTimeoutError) return true;
+    const msg = err instanceof Error ? err.message : "";
+    return /not found|expired|already (completed|processed|settled)|no (such )?transaction|invalid txn/i.test(
+      msg,
+    );
+  };
+
   const handleRecoverPayment = async () => {
-    if (!paymentRecovery || !selectedEpi || !selectedAppKey) return;
+    if (!paymentRecovery || recoveryInFlightRef.current) return;
     // Snapshot — do not read paymentRecovery again in finally (stale closure deadlock).
     const recovery = paymentRecovery;
+    const orderId = recovery.orderId ?? loadedPendingOrderId;
+    if (!orderId) {
+      toast.error("Order record missing — check Pending Payments");
+      return;
+    }
+    // Cached approval needs no terminal; poll path needs EPI/keys.
+    if (!recovery.approvedResult && (!selectedEpi || !selectedAppKey)) {
+      toast.error("No terminal selected — choose a terminal in Settings");
+      return;
+    }
+    recoveryInFlightRef.current = true;
     checkoutLockRef.current = true;
     setIsProcessing(true);
-    const orderId = recovery.orderId ?? loadedPendingOrderId;
     const cardTotal = computeTotals(totalPrice, "card").total;
     let recovered = false;
     try {
-      const result = await recoverValorTransaction(
-        selectedEpi,
-        selectedAppKey,
-        recovery.reqTxnId,
-      );
-      if (!orderId) throw new Error("Order record missing — check Pending Payments");
-      // Persist first; only clear recovery UI after save succeeds.
-      await finalizeCardPayment(result, `#${orderNumber}`, orderId, cardTotal, recovery.reqTxnId);
+      // Prefer real card-reader confirmation in this order:
+      // 1) in-memory approval from save-fail
+      // 2) session cache (survives refresh / sticky UI)
+      // 3) re-poll Valor status
+      // 4) only then staff attestation mark-paid (no card payload available)
+      let result: ValorSuccessResponse | null =
+        recovery.approvedResult ?? readCachedValorApproval(recovery.reqTxnId);
+
+      if (!result) {
+        try {
+          result = await recoverValorTransaction(
+            selectedEpi,
+            selectedAppKey,
+            recovery.reqTxnId,
+            20_000,
+          );
+        } catch (pollErr) {
+          if (pollErr instanceof ValorCancelledError) {
+            void dismissPaymentRecovery(false);
+            setCashFallbackOpen(true);
+            return;
+          }
+          // knownApproved: we already have the approval in memory (or staff must save).
+          // timeout / settled-gone: staff attested via this button.
+          // Other errors (decline, PROCESSING ERROR, network): keep modal open — do not mark paid.
+          if (recovery.knownApproved || isSettledOrGonePollError(pollErr)) {
+            result = null;
+          } else {
+            throw pollErr;
+          }
+        }
+      }
+
+      if (result) {
+        cacheValorApproval(recovery.reqTxnId, result);
+        // Persist first; only clear recovery UI after save succeeds.
+        await finalizeCardPayment(result, `#${orderNumber}`, orderId, cardTotal, recovery.reqTxnId);
+      } else {
+        await markOrderPaid(orderId);
+        clearCachedValorApproval(recovery.reqTxnId);
+        toast.success("Order marked paid (payment confirmed) — do not run card again", {
+          duration: 4000,
+        });
+        askToPrint(orderId, `#${orderNumber}`, cardTotal);
+        resetOrder();
+      }
       setPaymentRecovery(null);
+      blockedCardRetryRef.current = false;
       recovered = true;
     } catch (error) {
       if (error instanceof ValorCancelledError) {
@@ -528,13 +616,15 @@ const POSPage = () => {
       }
       // Keep recovery modal open; avoid duplicate toast when finalize already explained save-fail.
       if (!(error as Error & { openedPaymentRecovery?: boolean })?.openedPaymentRecovery) {
-        toast.error(error instanceof Error ? error.message : "Still waiting on terminal");
+        toast.error(error instanceof Error ? error.message : "Could not save — tap Payment went through to retry");
       }
     } finally {
+      // Always clear processing banners / txn id so the UI cannot stick.
+      recoveryInFlightRef.current = false;
       setIsProcessing(false);
+      setInFlightTxnId(null);
       if (recovered) {
         checkoutLockRef.current = false;
-        setInFlightTxnId(null);
       }
     }
   };
@@ -566,7 +656,7 @@ const POSPage = () => {
   };
 
   const handleUnpaidCardPay = async (order: Order, tag: string) => {
-    if (checkoutLockRef.current || unpaidInFlight) return;
+    if (checkoutLockRef.current || unpaidInFlight || unpaidRecovery || paymentRecovery) return;
     checkoutLockRef.current = true;
     setUnpaidInFlight({ orderId: order.id, txnId: null });
     let awaitingRecovery = false;
@@ -593,6 +683,7 @@ const POSPage = () => {
 
       try {
         const tenderedCash = await persistCardApproval(order.id, result);
+        if (reqTxnId) clearCachedValorApproval(reqTxnId);
         if (tenderedCash) {
           toast.success(`Cash collected at terminal for ${tag}`, { duration: 2000 });
         } else {
@@ -600,11 +691,19 @@ const POSPage = () => {
         }
         askToPrint(order.id, tag, order.total);
         setExpandedUnpaidOrder(null);
-      } catch {
+      } catch (saveErr) {
         saveAfterChargeFailed = true;
         if (reqTxnId) {
           awaitingRecovery = true;
-          setUnpaidRecovery({ orderId: order.id, tag, total: order.total, reqTxnId, knownApproved: true });
+          cacheValorApproval(reqTxnId, result);
+          setUnpaidRecovery({
+            orderId: order.id,
+            tag,
+            total: order.total,
+            reqTxnId,
+            knownApproved: true,
+            approvedResult: result,
+          });
           toast.error(
             "Card approved but saving failed — do NOT charge again. Tap Payment went through.",
             { duration: 8000 }
@@ -646,33 +745,68 @@ const POSPage = () => {
   };
 
   const handleRecoverUnpaidPayment = async () => {
-    if (!unpaidRecovery || !selectedEpi || !selectedAppKey) return;
+    if (!unpaidRecovery || recoveryInFlightRef.current) return;
     const recovery = unpaidRecovery;
+    if (!recovery.approvedResult && (!selectedEpi || !selectedAppKey)) {
+      toast.error("No terminal selected — choose a terminal in Settings");
+      return;
+    }
+    recoveryInFlightRef.current = true;
     checkoutLockRef.current = true;
     setUnpaidInFlight({ orderId: recovery.orderId, txnId: recovery.reqTxnId });
     let recovered = false;
     try {
-      const result = await recoverValorTransaction(
-        selectedEpi,
-        selectedAppKey,
-        recovery.reqTxnId,
-      );
       const { orderId, tag, total } = recovery;
-      // Persist first; only dismiss recovery after save succeeds.
-      const tenderedCash = await persistCardApproval(orderId, result);
+      let result: ValorSuccessResponse | null =
+        recovery.approvedResult ?? readCachedValorApproval(recovery.reqTxnId);
+
+      if (!result) {
+        try {
+          result = await recoverValorTransaction(
+            selectedEpi,
+            selectedAppKey,
+            recovery.reqTxnId,
+            20_000,
+          );
+        } catch (pollErr) {
+          if (pollErr instanceof ValorCancelledError) {
+            setUnpaidRecovery(null);
+            setUnpaidCashFallback({ orderId: recovery.orderId, tag: recovery.tag, total: recovery.total });
+            return;
+          }
+          if (recovery.knownApproved || isSettledOrGonePollError(pollErr)) {
+            result = null;
+          } else {
+            throw pollErr;
+          }
+        }
+      }
+
+      if (result) {
+        cacheValorApproval(recovery.reqTxnId, result);
+        const tenderedCash = await persistCardApproval(orderId, result);
+        clearCachedValorApproval(recovery.reqTxnId);
+        toast.success(
+          tenderedCash
+            ? `Cash collected at terminal for ${tag}`
+            : `Card payment for ${tag} — ${result.ISSUER} ${result.MASKED_PAN}`,
+          { duration: 2000 }
+        );
+      } else {
+        await markOrderPaid(orderId);
+        clearCachedValorApproval(recovery.reqTxnId);
+        toast.success(`${tag} marked paid (payment confirmed) — do not run card again`, {
+          duration: 4000,
+        });
+      }
       setUnpaidRecovery(null);
       recovered = true;
-      toast.success(
-        tenderedCash
-          ? `Cash collected at terminal for ${tag}`
-          : `Card payment for ${tag} — ${result.ISSUER} ${result.MASKED_PAN}`,
-        { duration: 2000 }
-      );
       askToPrint(orderId, tag, total);
       setExpandedUnpaidOrder(null);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Still waiting on terminal");
+      toast.error(err instanceof Error ? err.message : "Could not save — tap Payment went through to retry");
     } finally {
+      recoveryInFlightRef.current = false;
       setUnpaidInFlight(null);
       if (recovered) {
         checkoutLockRef.current = false;
@@ -742,6 +876,7 @@ const POSPage = () => {
     setUnpaidRecovery(null);
     setIsProcessing(false);
     checkoutLockRef.current = false;
+    recoveryInFlightRef.current = false;
     // Keep the guard after cash-while-card-in-flight so a late approve voids instead of saving.
     if (!opts?.keepSwitchedToCash) {
       switchedToCashRef.current = false;
@@ -1116,13 +1251,18 @@ const POSPage = () => {
                             ) : (
                               <button
                                 onClick={() => {
+                                  if (unpaidRecovery || paymentRecovery) {
+                                    toast.error("Resolve the payment recovery dialog first — do not charge again", { duration: 4000 });
+                                    return;
+                                  }
                                   if (unpaidInFlight) {
                                     toast("Card payment in progress for another order — finish or cancel it first", { duration: 4000 });
                                     return;
                                   }
                                   handleUnpaidCardPay(order, tag);
                                 }}
-                                className={`py-2.5 text-[10px] font-sans font-bold uppercase tracking-wider rounded-sm active:scale-[0.95] transition-all ${unpaidInFlight ? "bg-blue-600/50 text-white/60 cursor-not-allowed" : "bg-blue-600 text-white hover:bg-blue-700"}`}
+                                disabled={!!unpaidRecovery || !!paymentRecovery || !!unpaidInFlight}
+                                className={`py-2.5 text-[10px] font-sans font-bold uppercase tracking-wider rounded-sm active:scale-[0.95] transition-all ${unpaidInFlight || unpaidRecovery || paymentRecovery ? "bg-blue-600/50 text-white/60 cursor-not-allowed" : "bg-blue-600 text-white hover:bg-blue-700"}`}
                               >
                                 💳 Card
                               </button>
@@ -1491,12 +1631,22 @@ const POSPage = () => {
                               return;
                             }
                             try {
+                              if (reqTxnId) cacheValorApproval(reqTxnId, result);
                               await persistCardApproval(orderId, result);
+                              if (reqTxnId) clearCachedValorApproval(reqTxnId);
                             } catch (saveErr) {
                               if (reqTxnId) {
                                 awaitingRecovery = true;
+                                blockedCardRetryRef.current = true;
                                 setIsProcessing(false);
-                                setPaymentRecovery({ reqTxnId, orderId, knownApproved: true });
+                                setInFlightTxnId(null);
+                                cacheValorApproval(reqTxnId, result);
+                                setPaymentRecovery({
+                                  reqTxnId,
+                                  orderId,
+                                  knownApproved: true,
+                                  approvedResult: result,
+                                });
                                 toast.error(
                                   "Card was approved but saving failed — do NOT charge again. Tap Payment went through.",
                                   { duration: 8000 }
@@ -1521,7 +1671,9 @@ const POSPage = () => {
                           }
                           if (err instanceof ValorTimeoutError) {
                             awaitingRecovery = true;
+                            blockedCardRetryRef.current = true;
                             setIsProcessing(false);
+                            setInFlightTxnId(null);
                             setPaymentRecovery({ reqTxnId: err.reqTxnId, orderId: orderId ?? undefined });
                             toast.error("Timed out — check terminal before retrying", { duration: 5000 });
                             return;
@@ -1588,12 +1740,12 @@ const POSPage = () => {
                     <button
                       onClick={() => {
                         if (paymentRecovery) {
-                          toast("Check the payment recovery dialog above — resolve it before starting a new payment", { duration: 4000 });
+                          toast.error("Resolve the payment recovery dialog first — do not charge again", { duration: 4000 });
                           return;
                         }
                         handleCheckout();
                       }}
-                      disabled={isProcessing}
+                      disabled={isProcessing || !!paymentRecovery}
                       className="py-4 bg-accent text-accent-foreground font-sans font-bold text-sm uppercase tracking-wider rounded-md flex items-center justify-center gap-2 hover:opacity-90 active:scale-[0.96] transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-md"
                     >
                       <CreditCard className="w-4 h-4" /> Card
@@ -1601,12 +1753,12 @@ const POSPage = () => {
                     <button
                       onClick={() => {
                         if (paymentRecovery) {
-                          toast("Check the payment recovery dialog above — resolve it before starting a new payment", { duration: 4000 });
+                          toast.error("Resolve the payment recovery dialog first — do not charge again", { duration: 4000 });
                           return;
                         }
                         setCashTendered(""); setNewOrderCashConfirm(true);
                       }}
-                      disabled={isProcessing}
+                      disabled={isProcessing || !!paymentRecovery}
                       className="py-4 bg-primary text-primary-foreground font-sans font-bold text-sm uppercase tracking-wider rounded-md flex items-center justify-center gap-2 hover:opacity-90 active:scale-[0.96] transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-md"
                     >
                       <Banknote className="w-4 h-4" /> Cash
@@ -1614,12 +1766,12 @@ const POSPage = () => {
                     <button
                       onClick={() => {
                         if (paymentRecovery) {
-                          toast("Check the payment recovery dialog above — resolve it before starting a new payment", { duration: 4000 });
+                          toast.error("Resolve the payment recovery dialog first — do not charge again", { duration: 4000 });
                           return;
                         }
                         setPosSplitMode(true); setPosSplitCash((computeTotals(totalPrice, "cash").total / 2).toFixed(2));
                       }}
-                      disabled={isProcessing}
+                      disabled={isProcessing || !!paymentRecovery}
                       className="py-4 bg-violet-600 text-white font-sans font-bold text-sm uppercase tracking-wider rounded-md flex items-center justify-center gap-2 hover:opacity-90 active:scale-[0.96] transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-md"
                     >
                       ✂️ Split
@@ -1854,6 +2006,10 @@ const POSPage = () => {
                     );
                     return;
                   }
+                  const ok = window.confirm(
+                    "Only continue if the terminal showed DECLINED or cancelled.\n\nIf the customer already paid, tapping Card again will DOUBLE-CHARGE them.\n\nContinue and allow a new card attempt?"
+                  );
+                  if (!ok) return;
                   const reqTxnId = unpaidRecovery.reqTxnId;
                   setUnpaidRecovery(null);
                   checkoutLockRef.current = false;
@@ -1894,12 +2050,20 @@ const POSPage = () => {
                 disabled={isProcessing}
                 className="py-3 bg-emerald-600 text-white font-sans font-bold text-xs uppercase tracking-wider rounded-sm hover:bg-emerald-700 active:scale-[0.96] disabled:opacity-50"
               >
-                {isProcessing ? "Checking terminal…" : "Payment went through"}
+                {isProcessing
+                  ? paymentRecovery.knownApproved || paymentRecovery.approvedResult
+                    ? "Saving order…"
+                    : "Checking terminal…"
+                  : "Payment went through"}
               </button>
               {!paymentRecovery.knownApproved && (
                 <>
                   <button
                     onClick={async () => {
+                      const ok = window.confirm(
+                        "Only use this if the customer paid CASH and the card was NOT charged.\n\nIf the card machine already took money, do NOT use this — tap Payment went through instead.\n\nContinue as cash?"
+                      );
+                      if (!ok) return;
                       await dismissPaymentRecovery(true);
                       setCashFallbackOpen(true);
                     }}
@@ -1909,13 +2073,24 @@ const POSPage = () => {
                     Customer paid cash instead
                   </button>
                   <button
-                    onClick={() => dismissPaymentRecovery(true)}
+                    onClick={async () => {
+                      const ok = window.confirm(
+                        "Only continue if the terminal showed DECLINED or cancelled.\n\nIf the customer already paid, tapping Card again will DOUBLE-CHARGE them.\n\nContinue and allow a new card attempt?"
+                      );
+                      if (!ok) return;
+                      await dismissPaymentRecovery(true);
+                    }}
                     disabled={isProcessing}
                     className="py-2.5 bg-muted text-muted-foreground font-sans font-bold text-xs uppercase tracking-wider rounded-sm hover:bg-muted/80 active:scale-[0.96] disabled:opacity-50"
                   >
                     No payment — try card again
                   </button>
                 </>
+              )}
+              {paymentRecovery.knownApproved && (
+                <p className="text-[11px] text-amber-700 text-center mt-1">
+                  Card retry is locked — use Payment went through, Pending Payments, or void on the terminal.
+                </p>
               )}
             </div>
           </div>
@@ -1938,7 +2113,13 @@ const POSPage = () => {
                 Yes — save as cash
               </button>
               <button
-                onClick={() => setCashFallbackOpen(false)}
+                onClick={() => {
+                  setCashFallbackOpen(false);
+                  checkoutLockRef.current = false;
+                  blockedCardRetryRef.current = false;
+                  setIsProcessing(false);
+                  setInFlightTxnId(null);
+                }}
                 className="py-2.5 bg-muted text-muted-foreground font-sans font-bold text-xs uppercase tracking-wider rounded-sm hover:bg-muted/80 active:scale-[0.96]"
               >
                 No — discard
